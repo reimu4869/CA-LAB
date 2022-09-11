@@ -1,7 +1,7 @@
 module mycpu_top(
     input  wire        clk,
     input  wire        resetn,
-    // id_inst sram interface
+    // inst sram interface
     output wire        inst_sram_en,
     output wire [ 3:0] inst_sram_we,                        
     output wire [31:0] inst_sram_addr,
