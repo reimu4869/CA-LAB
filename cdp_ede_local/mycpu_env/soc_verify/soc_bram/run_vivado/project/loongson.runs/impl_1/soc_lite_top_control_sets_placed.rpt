@@ -1,0 +1,113 @@
+Copyright 1986-2019 Xilinx, Inc. All Rights Reserved.
+-----------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2019.2 (win64) Build 2708876 Wed Nov  6 21:40:23 MST 2019
+| Date         : Sun Sep 11 16:57:24 2022
+| Host         : LAPTOP-QERVE6TP running 64-bit major release  (build 9200)
+| Command      : report_control_sets -verbose -file soc_lite_top_control_sets_placed.rpt
+| Design       : soc_lite_top
+| Device       : xc7a200t
+-----------------------------------------------------------------------------------------
+
+Control Set Information
+
+Table of Contents
+-----------------
+1. Summary
+2. Histogram
+3. Flip-Flop Distribution
+4. Detailed Control Set Information
+
+1. Summary
+----------
+
++----------------------------------------------------------+-------+
+|                          Status                          | Count |
++----------------------------------------------------------+-------+
+| Total control sets                                       |    35 |
+|    Minimum number of control sets                        |    35 |
+|    Addition due to synthesis replication                 |     0 |
+|    Addition due to physical synthesis replication        |     0 |
+| Unused register locations in slices containing registers |    63 |
++----------------------------------------------------------+-------+
+* Control sets can be merged at opt_design using control_set_merge or merge_equivalent_drivers
+** Run report_qor_suggestions for automated merging and remapping suggestions
+
+
+2. Histogram
+------------
+
++--------------------+-------+
+|       Fanout       | Count |
++--------------------+-------+
+| Total control sets |    35 |
+| >= 0 to < 4        |     2 |
+| >= 4 to < 6        |     3 |
+| >= 6 to < 8        |     1 |
+| >= 8 to < 10       |     1 |
+| >= 10 to < 12      |     0 |
+| >= 12 to < 14      |     1 |
+| >= 14 to < 16      |     0 |
+| >= 16              |    27 |
++--------------------+-------+
+* Control sets can be remapped at either synth_design or opt_design
+
+
+3. Flip-Flop Distribution
+-------------------------
+
++--------------+-----------------------+------------------------+-----------------+--------------+
+| Clock Enable | Synchronous Set/Reset | Asynchronous Set/Reset | Total Registers | Total Slices |
++--------------+-----------------------+------------------------+-----------------+--------------+
+| No           | No                    | No                     |             155 |           43 |
+| No           | No                    | Yes                    |               0 |            0 |
+| No           | Yes                   | No                     |             175 |           51 |
+| Yes          | No                    | No                     |             302 |          116 |
+| Yes          | No                    | Yes                    |               0 |            0 |
+| Yes          | Yes                   | No                     |             521 |          208 |
++--------------+-----------------------+------------------------+-----------------+--------------+
+
+
+4. Detailed Control Set Information
+-----------------------------------
+
++-----------------------------+------------------------------------------+------------------------+------------------+----------------+
+|         Clock Signal        |               Enable Signal              |    Set/Reset Signal    | Slice Load Count | Bel Load Count |
++-----------------------------+------------------------------------------+------------------------+------------------+----------------+
+|  pll.clk_pll/inst/cpu_clk   | u_confreg/step0_sample                   | u_confreg/SR[0]        |                1 |              1 |
+|  pll.clk_pll/inst/cpu_clk   | u_confreg/step1_sample                   | u_confreg/SR[0]        |                1 |              1 |
+|  pll.clk_pll/inst/cpu_clk   |                                          | u_confreg/state_count0 |                1 |              4 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/ena                                  |                        |                2 |              4 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/id_valid                             | cpu/exe_dest           |                2 |              5 |
+|  pll.clk_pll/inst/cpu_clk   | u_confreg/p_0_in_1                       | u_confreg/SR[0]        |                2 |              6 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/E[0]                                 | u_confreg/SR[0]        |                4 |              8 |
+|  pll.clk_pll/inst/cpu_clk   | cpu_resetn                               |                        |               10 |             13 |
+|  pll.clk_pll/inst/cpu_clk   |                                          | u_confreg/key_count0   |                5 |             20 |
+|  pll.clk_pll/inst/cpu_clk   |                                          | u_confreg/step0_count0 |                5 |             20 |
+|  pll.clk_pll/inst/cpu_clk   |                                          | u_confreg/step1_count0 |                5 |             20 |
+|  pll.clk_pll/inst/timer_clk |                                          | u_confreg/SR[0]        |                8 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_7[0]         | u_confreg/SR[0]        |               13 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_5[0]         | u_confreg/SR[0]        |               14 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/cpu_resetn_reg[0]                    |                        |               10 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_11[0]        | u_confreg/SR[0]        |               16 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_0[0]         | u_confreg/SR[0]        |                8 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_8[0]         | u_confreg/SR[0]        |               14 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_10[0]        | u_confreg/SR[0]        |               15 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_12[0]        | u_confreg/SR[0]        |               14 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_6[0]         | u_confreg/SR[0]        |               15 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_9[0]         | u_confreg/SR[0]        |               14 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_valid_reg_0[0]                   | u_confreg/SR[0]        |               12 |             32 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_2[0]         | u_confreg/SR[0]        |               11 |             34 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_3[0]         | u_confreg/SR[0]        |               14 |             34 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/mem_valid                            |                        |               13 |             38 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_valid                            |                        |               14 |             39 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_4[0]         | u_confreg/SR[0]        |               21 |             48 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/if_valid                             |                        |               31 |             64 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/exe_data_sram_we_reg[3]_1[0]         | u_confreg/SR[0]        |               17 |             64 |
+|  pll.clk_pll/inst/timer_clk |                                          |                        |               16 |             67 |
+|  pll.clk_pll/inst/cpu_clk   |                                          | u_confreg/SR[0]        |               27 |             79 |
+|  pll.clk_pll/inst/cpu_clk   |                                          |                        |               27 |             88 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/u_regfile/rf_reg_r1_0_31_0_5_i_1_n_0 |                        |               12 |             96 |
+|  pll.clk_pll/inst/cpu_clk   | cpu/id_valid                             |                        |               36 |            112 |
++-----------------------------+------------------------------------------+------------------------+------------------+----------------+
+
+
