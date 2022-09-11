@@ -418,8 +418,6 @@ alu u_alu(
     .alu_result (alu_result)                
     );
 
-
-
 assign data_sram_en    = exe_data_sram_en && exe_valid;
 assign data_sram_we    = exe_data_sram_we;
 assign data_sram_addr  = alu_result;
