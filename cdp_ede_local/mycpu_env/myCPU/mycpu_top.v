@@ -2,7 +2,7 @@ module mycpu_top(
     input  wire        clk,
     input  wire        resetn,
     // inst sram interface
-    output wire        inst_sram_we,
+    output wire        inst_sram_we,                        
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
     input  wire [31:0] inst_sram_rdata,
@@ -17,10 +17,13 @@ module mycpu_top(
     output wire [ 4:0] debug_wb_rf_wnum,
     output wire [31:0] debug_wb_rf_wdata
 );
-reg         reset;
-always @(posedge clk) reset <= ~resetn;
+//bug5 ? this register makes the reset signal will be postpone one clock
+//reg          reset;
+//always @(posedge clk) reset <= ~resetn;
 
 wire [31:0] seq_pc;
+wire [31:0] fs_pc;
+wire [31:0] ds_pc;
 wire [31:0] nextpc;
 wire        br_taken;
 wire [31:0] br_target;
@@ -101,14 +104,19 @@ wire [31:0] alu_src2   ;
 wire [31:0] alu_result ;
 
 wire [31:0] mem_result;
-wire [31:0] ms_final_result;
+wire [31:0] final_result;        //bug4  delete "ms_"
 
-
-assign seq_pc       = fs_pc + 3'h4;
-assign nextpc       = br_taken ? br_target : seq_pc;
+//bug1 compile errors some signals is not declared
+//'fs_pc','ds_pc','ds_valid','rfrom_mem' is not declared
+//delete ds_valid and rfrom_mem, add fs_pc and ds_pc
+//2022/8/31 17:47
+assign fs_pc    = pc;
+assign ds_pc    = pc;
+assign seq_pc   = fs_pc + 3'h4;                 
+assign nextpc   = br_taken ? br_target : seq_pc;
 
 always @(posedge clk) begin
-    if (reset) begin
+    if (!resetn) begin
         pc <= 32'h1c000000; 
     end
     else begin
@@ -207,7 +215,10 @@ assign src2_is_imm   = inst_slli_w |
 
 assign res_from_mem  = inst_ld_w;
 assign dst_is_r1     = inst_bl;
-assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b & ~inst_bl;
+//bug6  instruction "bl" need to write in regfile
+//otherwise, it leads to the golden_trace and the open_trace signal delay one clock
+//2022/8/31     21:55
+assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;
 assign mem_we        = inst_st_w;
 assign dest          = dst_is_r1 ? 5'd1 : rd;
 
@@ -228,12 +239,14 @@ assign rj_value  = rf_rdata1;
 assign rkd_value = rf_rdata2;
 
 assign rj_eq_rd = (rj_value == rkd_value);
-assign br_taken = (   inst_beq  &&  rj_eq_rd
+//the br_taken signal could be judged without ds_valid
+//ds_valid can be deleted
+assign br_taken =  inst_beq  &&  rj_eq_rd
                    || inst_bne  && !rj_eq_rd
                    || inst_jirl
                    || inst_bl
-                   || inst_b
-                  ) && ds_valid;
+                   || inst_b;            
+
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_offs) :
                                                    /*inst_jirl*/ (rj_value + jirl_offs);
 
@@ -242,18 +255,21 @@ assign alu_src2 = src2_is_imm ? imm : rkd_value;
 
 alu u_alu(
     .alu_op     (alu_op    ),
-    .alu_src1   (alu_src2  ),
-    .alu_src2   (alu_src2  ),
-    .alu_result (alu_result)
+    .alu_src1   (alu_src1  ),               //bug3  "addi"  the source of the adder is wrong
+    .alu_src2   (alu_src2  ),               //it makes the adder result wrong, "0xffffffff" and "0xfffffffe"
+    .alu_result (alu_result)                //2022/8/31 21:01
     );
 
-assign data_sram_en    = (rfrom_mem || mem_we) && valid;
+//assign data_sram_en    = (rfrom_mem || mem_we) && valid;    //data_sram_en is not used in front or back of this line
 assign data_sram_we    = mem_we;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = rkd_value;
 
 assign mem_result   = data_sram_rdata;
-assign final_result = res_from_mem ? mem_result : alu_result;
+//bug4 the signal "final_result" wa not declared,it only has one bit
+//it makes the result of rf_data wrong "0xffffffff" and "0x00000001"
+//2022/8/31     21:18 
+assign final_result = res_from_mem ? mem_result : alu_result;                
 
 assign rf_we    = gr_we;
 assign rf_waddr = dest;
@@ -261,7 +277,9 @@ assign rf_wdata = final_result;
 
 // debug info generate
 assign debug_wb_pc       = pc;
-assign debug_wb_rf_wen   = {4{rf_we}};
+//bug2 "Z" debug_sram_wen was not used
+//2022/8/31 18:10
+assign debug_wb_rf_we   = {4{rf_we}};                   
 assign debug_wb_rf_wnum  = dest;
 assign debug_wb_rf_wdata = final_result;
 

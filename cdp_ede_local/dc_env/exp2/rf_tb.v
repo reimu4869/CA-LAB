@@ -123,9 +123,4 @@ begin
 	$finish;
 end
 
-	initial begin
-		$dumpfile("rf.vcd");
-		$dumpvars(0, u_regfile); 
-	end
-
 endmodule

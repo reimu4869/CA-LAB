@@ -24,12 +24,14 @@ reg [3:0] prev_data;
 //new value
 always @(posedge clk)
 begin
-//    show_data   <= ~switch;
+    show_data   <= ~switch;
+//    bug1  "X"
 end
 
 always @(posedge clk)
 begin
-    show_data_r = show_data;
+    show_data_r <= show_data;
+//    bug2 
 end
 //previous value
 always @(posedge clk)
@@ -53,7 +55,7 @@ show_num u_show_num(
         .resetn     (resetn   ),
         
         .show_data  (show_data),
-        .num_csn    (num_scn  ),
+        .num_csn    (num_csn  ),    //  bug3 "Z"
         .num_a_g    (num_a_g  )
 );
 
@@ -87,7 +89,7 @@ end
 
 //keep unchange if show_dtaa>=10
 wire [6:0] keep_a_g;
-assign     keep_a_g = num_a_g + nxt_a_g;
+assign     keep_a_g = num_a_g;              //      bug4
 
 assign nxt_a_g = show_data==4'd0 ? 7'b1111110 :   //0
                  show_data==4'd1 ? 7'b0110000 :   //1
@@ -95,6 +97,7 @@ assign nxt_a_g = show_data==4'd0 ? 7'b1111110 :   //0
                  show_data==4'd3 ? 7'b1111001 :   //3
                  show_data==4'd4 ? 7'b0110011 :   //4
                  show_data==4'd5 ? 7'b1011011 :   //5
+                 show_data==4'd6 ? 7'b1011111 :   //6           //bug5      missing "6"  
                  show_data==4'd7 ? 7'b1110000 :   //7
                  show_data==4'd8 ? 7'b1111111 :   //8
                  show_data==4'd9 ? 7'b1111011 :   //9

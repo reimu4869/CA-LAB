@@ -1,7 +1,6 @@
 #include "asm.h"
 #include "regdef.h"
 #include "cpu_cde.h"
-#include "test_define.h"
 #include "test_config.h"
 
 #define TEST_NUM (TEST1*20 + TEST2*16 + TEST3*10 + TEST4*1 + TEST5*11 + TEST6*12 + TEST7*2 + TEST8*7 + TEST9*2)
@@ -16,9 +15,9 @@
 ##s2, exception use
 ##s3, score
 ##s4, exception pc
-    .globl    _start
-    .globl     start
-    .globl    __main
+	.globl	_start
+	.globl	start
+	.globl	__main
 _start:
 start:
     li.w     t0, 0xffffffff
@@ -27,7 +26,7 @@ start:
     ori    $r1,$r0,0x28
     csrwr  $r1,0x0
 #endif
-    b    locate
+	b	locate
 
 ##avoid "j locate" not taken
     lu12i.w   t0, -0x80000
@@ -51,6 +50,7 @@ test_finish:
 1:
     b         1b
 //    .word 0x80000000 // nemu trap
+    nop
     b   1f
 .org 0x130
 1:
@@ -100,7 +100,7 @@ test_finish:
     beq   t1, t0, tlb_adef_error
     li.w    t0, IMM_KERNEL 
     beq   t1, t0, syscall_bak_kernel_mode
-    b     test_end
+	b     test_end
 
 syscall_ex:
     add.w    s2, zero, zero
@@ -666,7 +666,13 @@ inst_test:
 ############################
 ###TEST4 test
 #if TEST4 
-    bl test4_init
+lab8_csr_init:
+    csrwr     zero, csr_prmd 
+    csrwr     zero, csr_era 
+    csrwr     zero, csr_eentry 
+
+    li.w t0, 0x1c008000 
+    csrwr t0, csr_eentry 
 
     bl n47_syscall_ex_test       #syscall
     bl idle_1s
@@ -675,7 +681,19 @@ inst_test:
 ############################
 ###TEST5 test 
 #if TEST5 
-    bl test5_init
+lab9_csr_init:
+    csrwr     zero, csr_prmd 
+    csrwr     zero, csr_era 
+    csrwr     zero, csr_eentry 
+    csrwr     zero, csr_badv 
+    csrwr     zero, csr_save0 
+    csrwr     zero, csr_save1
+    csrwr     zero, csr_save2 
+    csrwr     zero, csr_save3 
+    csrwr     zero, csr_tcfg
+
+    li.w t0, 0x1c008000 
+    csrwr t0, csr_eentry
 
     bl n48_brk_ex_test         #brk ex 
     bl idle_1s 
@@ -713,49 +731,68 @@ inst_test:
 #endif
 
 #if TEST6
-    bl test6_init
+lab14_csr_init:
+    csrwr     zero, csr_prmd 
+    csrwr     zero, csr_era 
+    csrwr     zero, csr_eentry 
+    csrwr     zero, csr_badv 
+    csrwr     zero, csr_save0 
+    csrwr     zero, csr_save1
+    csrwr     zero, csr_save2 
+    csrwr     zero, csr_save3 
+    csrwr     zero, csr_tcfg
+    csrwr     zero, csr_tlbidx
+    csrwr     zero, csr_tlbehi 
+    csrwr     zero, csr_tlbelo0
+    csrwr     zero, csr_tlbelo1 
+    csrwr     zero, csr_asid
+    csrwr     zero, csr_tlbrentry
 
-    bl tlb_init
+    li.w      t0, 0x0 
+    li.w      t1, 0x3 
+    csrxchg t0, t1, csr_crmd 
+    bl tlb_initialization
+
     bl n59_tlbrd_tlbwr_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n60_tlbfill_test
     bl idle_1s 
 
-    bl tlb_init
+    bl tlb_initialization
     bl n61_tlbsrch_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n62_invtlb_0x0_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n63_invtlb_0x1_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n64_invtlb_0x2_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n65_invtlb_0x3_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n66_invtlb_0x4_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n67_invtlb_0x5_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n68_invtlb_0x6_test
     bl idle_1s
 
-    bl tlb_init
+    bl tlb_initialization
     bl n69_invtlb_inv_op_test
     bl idle_1s
  
@@ -772,6 +809,31 @@ inst_test:
 #endif
 
 #if TEST8
+
+lab16_csr_init: 
+    csrwr     zero, csr_prmd 
+    csrwr     zero, csr_era 
+    csrwr     zero, csr_eentry 
+    csrwr     zero, csr_badv 
+    csrwr     zero, csr_save0 
+    csrwr     zero, csr_save1
+    csrwr     zero, csr_save2 
+    csrwr     zero, csr_save3 
+    csrwr     zero, csr_tcfg
+    csrwr     zero, csr_tlbidx
+    csrwr     zero, csr_tlbehi 
+    csrwr     zero, csr_tlbelo0
+    csrwr     zero, csr_tlbelo1 
+    csrwr     zero, csr_asid 
+    csrwr     zero, csr_tlbrentry
+
+cacop_disable:
+    li.w        t0, 0x8 
+    li.w        t1, 0x18 
+    csrxchg   t0, t1, csr_crmd
+    csrwr     zero, csr_dmw0 
+    csrwr     zero, csr_dmw1  
+
     bl n73_icacop_op0
     bl idle_1s
 
@@ -806,37 +868,41 @@ test_end:
     LI  (s0, TEST_NUM)
     NOP4
     beq s0, s3, 1f
+    nop
 
     LI (a0, LED_ADDR)
-    LI (a1, LED_RG1_ADDR)
+	  LI (a1, LED_RG1_ADDR)
     LI (a2, LED_RG0_ADDR)
-
+	
     LI (t1, 0x0002)
     NOP4
     
-    st.w    zero, a0, 0
+	  st.w    zero, a0, 0
     st.w    t1, a1, 0
     st.w    t1, a2, 0
     li.w    a0, 0x1
     b  2f
+    nop
 1:
     LI (t1, 0x0001)
     LI (a0, LED_RG1_ADDR)
-    LI (a1, LED_RG0_ADDR)
+	  LI (a1, LED_RG0_ADDR)
     NOP4
     st.w    t1, a0, 0
     st.w    t1, a1, 0
     li.w    a0, 0
 
 2:
-    //LI (t1, 0xff)
-    //LI (t0, UART_ADDR)
-    //sw t1, 0(t0)
+	//LI (t1, 0xff)
+	//LI (t0, UART_ADDR)
+	//sw t1, 0(t0)
 
-    bl test_finish
+	bl test_finish
 
 idle_1s:
+    #if NOP_INSERT
     NOP4
+    #endif
     LI (t0,SW_INTER_ADDR)
     LI (t1, 0xaaaa)
 

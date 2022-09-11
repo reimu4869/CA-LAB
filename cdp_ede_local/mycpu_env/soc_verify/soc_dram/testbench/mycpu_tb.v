@@ -102,8 +102,6 @@ assign debug_wb_rf_wdata = soc_lite.debug_wb_rf_wdata;
 // open the trace file;
 integer trace_ref;
 initial begin
-	$dumpfile("dump.vcd");
-	$dumpvars(0, soc_lite); 
     trace_ref = $fopen(`TRACE_REF_FILE, "r");
 end
 
@@ -114,7 +112,7 @@ reg        debug_end;
 reg [31:0] ref_wb_pc;
 reg [4 :0] ref_wb_rf_wnum;
 reg [31:0] ref_wb_rf_wdata;
-integer a;
+
 always @(posedge soc_clk)
 begin 
     #1;
@@ -123,7 +121,7 @@ begin
         trace_cmp_flag=1'b0;
         while (!trace_cmp_flag && !($feof(trace_ref)))
         begin
-           a =  $fscanf(trace_ref, "%h %h %h %h", trace_cmp_flag,
+            $fscanf(trace_ref, "%h %h %h %h", trace_cmp_flag,
                     ref_wb_pc, ref_wb_rf_wnum, ref_wb_rf_wdata);
         end
     end
