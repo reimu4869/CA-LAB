@@ -161,6 +161,36 @@ reg        wb_rf_we;
 reg [ 4:0] wb_dest;
 reg [31:0] wb_final_result;
 
+//block module
+wire block_sig; 
+wire block_rj_eq_dest;
+wire block_rkd_eq_dest;
+wire block_if_block;
+wire [4:0] block_dest_exe;
+wire [4:0] block_dest_mem;
+wire [4:0] block_dest_wb;
+
+assign block_dest_exe = {5{(exe_valid && exe_rf_we)}} & exe_dest;
+assign block_dest_mem = {5{(mem_valid && mem_rf_we)}} & mem_dest;
+assign block_dest_wb = {5{(wb_valid && wb_rf_we)}} & wb_dest;
+
+assign block_rj_eq_dest = (rf_raddr1 != 5'b0) 
+                        && ((rf_raddr1 == block_dest_exe)
+                        || (rf_raddr1 == block_dest_mem)
+                        || (rf_raddr1 == block_dest_wb));
+
+assign block_rkd_eq_dest = (rf_raddr2 != 5'b0) 
+                        && ((rf_raddr2 == block_dest_exe) 
+                        || (rf_raddr2 == block_dest_mem)
+                        || (rf_raddr2 == block_dest_wb));
+
+assign block_if_block = id_valid                                               //first, the instrustion should be valid
+                        && ~inst_lu12i_w                                       //next, ignore the instruction not reading RF        
+                        && (block_rj_eq_dest || block_rkd_eq_dest              //third, the normal situation    
+                        && (~src2_is_imm || src2_is_imm && inst_st_w) );       //rkd can be ignored sometime that using imm without st  
+
+assign block_sig = block_if_block;
+
 always @(posedge clk) begin
     if(!resetn) begin
         if_valid <= 1'b0; 
@@ -253,15 +283,15 @@ always @(posedge clk) begin
     end
 end
 
-assign br_taken_cancel = id_valid && br_taken;
+assign br_taken_cancel = id_valid && br_taken && ~block_sig;                //br until block is over
 
-assign validin =1'b1;
+assign validin = resetn;                                                        
 assign if_ready_go = 1'b1;
 assign if_br_taken = br_taken_cancel;
 assign if_allowin = !if_valid || if_ready_go && id_allowin;
 assign if_to_id_valid = if_valid && if_ready_go;
 
-assign id_ready_go = 1'b1;
+assign id_ready_go = ~block_sig;
 assign id_br_taken = br_taken_cancel;
 assign id_allowin = !id_valid || id_ready_go && exe_allowin;
 assign id_to_exe_valid = id_valid & id_ready_go;
@@ -275,7 +305,7 @@ assign mem_allowin = !mem_valid || mem_ready_go && wb_allowin;
 assign mem_to_wb_valid = mem_valid && mem_ready_go;
 
 assign wb_ready_go = 1'b1;
-assign allowout = 1'b1;
+assign allowout = resetn;
 assign wb_allowin = !wb_valid || wb_ready_go && allowout;
 assign wb_validout = wb_valid && wb_ready_go;
 
@@ -285,7 +315,7 @@ assign ds_pc    = id_pc;
 assign seq_pc   = fs_pc + 3'h4;                 
 assign nextpc   = br_taken_cancel ? br_target : seq_pc;
 
-assign inst_sram_en    = resetn;
+assign inst_sram_en    = resetn && ~block_sig;                      //when block, do not read instuction from ram
 assign inst_sram_we    = 4'b0;
 assign inst_sram_addr  = nextpc;
 assign inst_sram_wdata = 32'b0;
