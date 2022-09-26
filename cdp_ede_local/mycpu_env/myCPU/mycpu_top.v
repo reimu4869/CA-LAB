@@ -161,7 +161,15 @@ reg        wb_rf_we;
 reg [ 4:0] wb_dest;
 reg [31:0] wb_final_result;
 
-//block module
+//clash
+wire clash_rj_exe;
+wire clash_rj_mem;
+wire clash_rj_wb;
+wire clash_rkd_exe;
+wire clash_rkd_mem;
+wire clash_rkd_wb;
+
+//block sig
 wire block_sig; 
 wire block_rj_eq_dest;
 wire block_rkd_eq_dest;
@@ -170,26 +178,63 @@ wire [4:0] block_dest_exe;
 wire [4:0] block_dest_mem;
 wire [4:0] block_dest_wb;
 
+//forward sig
+wire fwd_fail_sig;
+wire fwd_rj_exe;
+wire fwd_rj_mem;
+wire fwd_rj_wb;
+wire fwd_rkd_exe;
+wire fwd_rkd_mem;
+wire fwd_rkd_wb;
+wire [2:0] sel_rj_fwd;
+wire [2:0] sel_rkd_fwd;
+
+
+assign clash_rj_exe = rf_raddr1 == block_dest_exe;
+assign clash_rj_mem = rf_raddr1 == block_dest_mem;
+assign clash_rj_wb = rf_raddr1 == block_dest_wb;
+
+assign clash_rkd_exe = rf_raddr2 == block_dest_exe;
+assign clash_rkd_mem = rf_raddr2 == block_dest_mem;
+assign clash_rkd_wb = rf_raddr2 == block_dest_wb;
+
+assign fwd_rj_exe = (rf_raddr1 != 5'b0) && clash_rj_exe;
+assign fwd_rj_mem = (rf_raddr1 != 5'b0) && clash_rj_mem;
+assign fwd_rj_wb = (rf_raddr1 != 5'b0) && clash_rj_wb;
+
+assign fwd_rkd_exe = (rf_raddr2 != 5'b0) && clash_rkd_exe 
+                     && (~src2_is_imm || src2_is_imm && inst_st_w);
+assign fwd_rkd_mem = (rf_raddr2 != 5'b0) && clash_rkd_mem
+                     && (~src2_is_imm || src2_is_imm && inst_st_w);
+assign fwd_rkd_wb = (rf_raddr2 != 5'b0) && clash_rkd_wb
+                     && (~src2_is_imm || src2_is_imm && inst_st_w);
+
+assign fwd_fail_sig = (fwd_rj_exe || fwd_rkd_exe) && data_sram_en;
+
+assign sel_rj_fwd = {fwd_rj_wb && ~fwd_fail_sig, fwd_rj_mem 
+                    && ~fwd_fail_sig, fwd_rj_exe && ~fwd_fail_sig};
+
+assign sel_rkd_fwd = {fwd_rkd_wb && ~fwd_fail_sig, fwd_rkd_mem 
+                    && ~fwd_fail_sig, fwd_rkd_exe && ~fwd_fail_sig};
+
+
+//block module
 assign block_dest_exe = {5{(exe_valid && exe_rf_we)}} & exe_dest;
 assign block_dest_mem = {5{(mem_valid && mem_rf_we)}} & mem_dest;
 assign block_dest_wb = {5{(wb_valid && wb_rf_we)}} & wb_dest;
 
 assign block_rj_eq_dest = (rf_raddr1 != 5'b0) 
-                        && ((rf_raddr1 == block_dest_exe)
-                        || (rf_raddr1 == block_dest_mem)
-                        || (rf_raddr1 == block_dest_wb));
+                        && (clash_rj_exe || clash_rj_mem || clash_rj_wb);
 
 assign block_rkd_eq_dest = (rf_raddr2 != 5'b0) 
-                        && ((rf_raddr2 == block_dest_exe) 
-                        || (rf_raddr2 == block_dest_mem)
-                        || (rf_raddr2 == block_dest_wb));
+                        && (clash_rkd_exe || clash_rkd_mem || clash_rkd_wb);
 
 assign block_if_block = id_valid                                               //first, the instrustion should be valid
                         && ~inst_lu12i_w                                       //next, ignore the instruction not reading RF        
                         && (block_rj_eq_dest || block_rkd_eq_dest              //third, the normal situation    
                         && (~src2_is_imm || src2_is_imm && inst_st_w) );       //rkd can be ignored sometime that using imm without st  
 
-assign block_sig = block_if_block;
+assign block_sig = block_if_block & fwd_fail_sig;
 
 always @(posedge clk) begin
     if(!resetn) begin
@@ -243,8 +288,8 @@ always @(posedge clk) begin
         exe_rf_we <= gr_we;
         exe_src1 <= alu_src1;
         exe_src2 <= alu_src2;
-        exe_data_sram_en <= res_from_mem || mem_we;
-        exe_data_sram_we <= {4{mem_we}};
+        exe_data_sram_en <= res_from_mem || mem_we;             //maybe changed in the fulture 
+        exe_data_sram_we <= {4{mem_we}};                        //maybe changed in the fulture
         exe_data_sram_wdata <= rkd_value;
         exe_res_from_mem <= res_from_mem;
     end
@@ -424,8 +469,15 @@ regfile u_regfile(
     .wdata  (rf_wdata )
     );
 
-assign rj_value  = rf_rdata1;
-assign rkd_value = rf_rdata2;
+assign rj_value  =  sel_rj_fwd[0] ?  alu_result   :
+                    sel_rj_fwd[1] ?  final_result :
+                    sel_rj_fwd[2] ?  wb_final_result :
+                                     rf_rdata1;
+
+assign rkd_value =  sel_rkd_fwd[0] ?  alu_result   :
+                    sel_rkd_fwd[1] ?  final_result :
+                    sel_rkd_fwd[2] ?  wb_final_result :
+                                      rf_rdata2;
 
 assign rj_eq_rd = (rj_value == rkd_value);
 
