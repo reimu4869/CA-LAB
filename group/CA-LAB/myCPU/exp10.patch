@@ -1,0 +1,333 @@
+--- D:\HW\computer\ex\lab4_exp9\mycpu_env\myCPU\mycpu_top.v
++++ D:\HW\computer\ex\lab5_exp10\mycpu_env\myCPU\mycpu_top.v
+@@ -67,14 +67,22 @@
+ wire        inst_add_w;    //指令码判断
+ wire        inst_sub_w;
+ wire        inst_slt;
++wire        inst_slti;
+ wire        inst_sltu;
++wire        inst_sltui;
+ wire        inst_nor;
+ wire        inst_and;
++wire        inst_andi;
+ wire        inst_or;
++wire        inst_ori;
+ wire        inst_xor;
++wire        inst_xori;
+ wire        inst_slli_w;
+ wire        inst_srli_w;
+ wire        inst_srai_w;
++wire        inst_sll_w;
++wire        inst_srl_w;
++wire        inst_sra_w;
+ wire        inst_addi_w;
+ wire        inst_ld_w;
+ wire        inst_st_w;
+@@ -84,8 +92,17 @@
+ wire        inst_beq;
+ wire        inst_bne;
+ wire        inst_lu12i_w;
++wire        inst_pcaddu12i;
++wire        inst_mul_w;
++wire        inst_mulh_w;
++wire        inst_mulh_wu;
++wire        inst_div_w;                         
++wire        inst_div_wu;
++wire        inst_mod_w;
++wire        inst_mod_wu;
+ 
+ wire        need_ui5;
++wire        need_ui12;
+ wire        need_si12;
+ wire        need_si16;
+ wire        need_si20;
+@@ -103,7 +120,25 @@
+ wire [31:0] alu_src1   ;
+ wire [31:0] alu_src2   ;
+ wire [31:0] alu_result ;
+-
++wire [32:0] mul_src1   ;
++wire [32:0] mul_src2   ;
++wire [65:0] mul_result ;
++wire [3:0]  alu_op2;       
++wire        dividend_valid;
++wire        dividend_ready;
++wire        divisor_valid;
++wire        divisor_ready;
++wire        dividendu_valid;
++wire        dividendu_ready;
++wire        divisoru_valid;
++wire        divisoru_ready;
++wire        dout_valid ;
++wire        doutu_valid;
++wire [63:0] div_result ;
++wire [63:0] divu_result;
++wire [63:0] div_mul_result;
++
++wire [31:0] result;
+ wire [31:0] mem_result;
+ wire [31:0] final_result;
+ 
+@@ -128,6 +163,7 @@
+ wire exe_allowin;
+ wire exe_to_mem_valid;
+ reg exe_valid;
++reg [11:0] exe_alu_op;
+ reg [31:0] exe_pc;
+ reg [ 4:0] exe_dest;
+ reg [31:0] exe_src1;
+@@ -138,6 +174,12 @@
+ reg [ 3:0] exe_data_sram_we;
+ reg        exe_data_sram_en;
+ reg [31:0] exe_data_sram_wdata;
++reg [ 3:0] exe_op;
++reg        exe_dividend_valid;
++reg        exe_divisor_valid;
++reg        exe_dividendu_valid;
++reg        exe_divisoru_valid;
++
+ 
+ //MEMreg
+ wire mem_ready_go;
+@@ -213,6 +255,7 @@
+ always @(posedge clk) begin
+     if(!resetn) begin
+         exe_valid <= 1'b0;
++        exe_op <=4'b0000;
+     end
+     else if(exe_allowin)begin
+         exe_valid <= id_to_exe_valid;
+@@ -229,6 +272,21 @@
+         exe_data_sram_we <= {4{mem_we}};
+         exe_data_sram_wdata <= rkd_value;
+         exe_res_from_mem <= res_from_mem;
++        exe_op <= alu_op2 ;
++        exe_divisor_valid <= alu_op2[0] && ~alu_op2[1] && ~alu_op2[2];
++        exe_dividend_valid <= alu_op2[0] && ~alu_op2[1] && ~alu_op2[2];
++        exe_divisoru_valid  <= alu_op2[0] && ~alu_op2[1] && alu_op2[2];
++        exe_dividendu_valid  <= alu_op2[0] && ~alu_op2[1] && alu_op2[2];
++        
++        
++    end
++    else if((dividend_valid && dividend_ready) || (divisor_valid && divisor_ready) )begin
++         exe_divisor_valid <= !(divisor_valid && divisor_ready);
++         exe_dividend_valid <= !(dividend_valid && dividend_ready);
++    end
++    else if((dividendu_valid && dividendu_ready) || (divisoru_valid && divisoru_ready))begin
++         exe_divisoru_valid  <= !(divisoru_valid && divisoru_ready);
++         exe_dividendu_valid  <= !(dividendu_valid && dividendu_ready);
+     end
+ end
+ 
+@@ -245,7 +303,7 @@
+         mem_dest <= exe_dest;
+         mem_res_from_mem <= exe_res_from_mem;
+         mem_rf_we <= exe_rf_we;
+-        mem_alu_result <= alu_result;
++        mem_alu_result <= result;
+     end
+ end
+ 
+@@ -276,7 +334,9 @@
+ assign id_allowin = !id_valid || id_ready_go && exe_allowin;
+ assign id_to_exe_valid = id_valid & id_ready_go;
+ 
+-assign exe_ready_go = 1'b1;
++assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2])? douu_valid :
++                      (exe_op[0]& !exe_op[1] & !exe_op[2])? dou_valid :
++                                                            1'b1  ;
+ assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
+ assign exe_to_mem_valid = exe_valid && exe_ready_go;
+ 
+@@ -293,7 +353,7 @@
+ assign seq_pc   = if_pc + 3'h4;                 
+ assign nextpc   = br_taken_cancel ? br_target : seq_pc;   //如果br_taken为1，跳转到目标pc，否则+4
+ 
+-assign inst_sram_en    = resetn && id_ready_go;
++assign inst_sram_en    = resetn && id_ready_go && exe_ready_go;
+ assign inst_sram_we    = 4'b0;
+ assign inst_sram_addr  = nextpc;
+ assign inst_sram_wdata = 32'b0;
+@@ -328,42 +388,66 @@
+ assign inst_slli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h01];
+ assign inst_srli_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h09];
+ assign inst_srai_w = op_31_26_d[6'h00] & op_25_22_d[4'h1] & op_21_20_d[2'h0] & op_19_15_d[5'h11];
++assign inst_sll_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0e];
++assign inst_srl_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
++assign inst_sra_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
++assign inst_mul_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h18];
++assign inst_mulh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h19];
++assign inst_mulh_wu= op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h1a];
++assign inst_div_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h00];
++assign inst_div_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h02];
++assign inst_mod_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h01];
++assign inst_mod_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h03];
+ assign inst_addi_w = op_31_26_d[6'h00] & op_25_22_d[4'ha];
+ assign inst_ld_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h2];
+ assign inst_st_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h6];
++assign inst_slti   = op_31_26_d[6'h00] & op_25_22_d[4'h8];
++assign inst_sltui  = op_31_26_d[6'h00] & op_25_22_d[4'h9];
++assign inst_andi   = op_31_26_d[6'h00] & op_25_22_d[4'hd];
++assign inst_ori    = op_31_26_d[6'h00] & op_25_22_d[4'he];
++assign inst_xori   = op_31_26_d[6'h00] & op_25_22_d[4'hf];
+ assign inst_jirl   = op_31_26_d[6'h13];
+ assign inst_b      = op_31_26_d[6'h14];
+ assign inst_bl     = op_31_26_d[6'h15];
+ assign inst_beq    = op_31_26_d[6'h16];
+ assign inst_bne    = op_31_26_d[6'h17];
+ assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
++assign inst_pcaddu12i=op_31_26_d[6'h07] & ~inst[25];
+ 
+ assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
+-                    | inst_jirl | inst_bl;
++                    | inst_jirl | inst_bl | inst_pcaddu12i;
+ assign alu_op[ 1] = inst_sub_w;
+-assign alu_op[ 2] = inst_slt;
+-assign alu_op[ 3] = inst_sltu;
+-assign alu_op[ 4] = inst_and;
++assign alu_op[ 2] = inst_slt | inst_slti;
++assign alu_op[ 3] = inst_sltu | inst_sltui;
++assign alu_op[ 4] = inst_and | inst_andi;
+ assign alu_op[ 5] = inst_nor;
+-assign alu_op[ 6] = inst_or;
+-assign alu_op[ 7] = inst_xor;
+-assign alu_op[ 8] = inst_slli_w;
+-assign alu_op[ 9] = inst_srli_w;
+-assign alu_op[10] = inst_srai_w;
++assign alu_op[ 6] = inst_or | inst_ori;
++assign alu_op[ 7] = inst_xor | inst_xori;
++assign alu_op[ 8] = inst_slli_w | inst_sll_w;
++assign alu_op[ 9] = inst_srli_w | inst_srl_w;
++assign alu_op[10] = inst_srai_w | inst_sra_w;
+ assign alu_op[11] = inst_lu12i_w;
++assign alu_op2[0] = inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu;
++assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //结果是否为乘法器输出
++assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //是否为无符号数
++assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //结果是否位于高位
+ 
+ assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
+-assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w;
++assign need_ui12  =  inst_andi | inst_ori | inst_xori;
++assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui ;
+ assign need_si16  =  inst_jirl | inst_beq | inst_bne;
+-assign need_si20  =  inst_lu12i_w;
++assign need_si20  =  inst_lu12i_w | inst_pcaddu12i;
+ assign need_si26  =  inst_b | inst_bl;
+ assign src2_is_4  =  inst_jirl | inst_bl;
+ 
+ assign rj_read_need = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_or | inst_and | inst_xor | inst_nor |
+-                       inst_slli_w | inst_srli_w | inst_srai_w | inst_beq | inst_bne | inst_jirl | inst_ld_w | inst_st_w | inst_addi_w;
++                       inst_slli_w | inst_srli_w | inst_srai_w | inst_beq | inst_bne | inst_jirl | inst_ld_w | inst_st_w | inst_addi_w |
++                       inst_ori | inst_xori | inst_andi | inst_sltui | inst_slti | inst_mul_w | inst_mulh_w | inst_mulh_wu | 
++                       inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu | inst_sll_w | inst_srl_w | inst_sra_w;
+ assign rd_read_need = inst_beq | inst_bne | inst_st_w;
+ assign rk_read_need = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_or | inst_and | inst_xor | inst_nor | 
+-                      inst_jirl ;
++                      inst_jirl | inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu
++                      | inst_sll_w | inst_srl_w | inst_sra_w;
+                       
+ assign exe_target ={5{exe_rf_we}} & exe_dest;
+ assign mem_target ={5{mem_rf_we}} & mem_dest;
+@@ -381,9 +465,10 @@
+                       (wb_target==5'b00000)? 1'b0:                                           
+                       (rj_read_need & (rj==wb_target))| (rk_read_need & (rk==wb_target)) | (rd_read_need & (rd==wb_target)) ;                    
+                       
+-assign imm = src2_is_4 ? 32'h4                      :
++assign imm = src2_is_4 ?  32'h4                     :
+              need_si20 ? {i20[19:0], 12'b0}         :
+-/*need_ui5 || need_si12*/{{20{i12[11]}}, i12[11:0]} ;
++             need_ui12 ? {{20'b0},i12[11:0]}        :
++                          {{20{i12[11]}}, i12[11:0]};/*need_ui5 || need_si12*/
+ 
+ assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :
+                              {{14{i16[15]}}, i16[15:0], 2'b0} ;
+@@ -392,12 +477,18 @@
+ 
+ assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
+ 
+-assign src1_is_pc    = inst_jirl | inst_bl;
++assign src1_is_pc    = inst_jirl | inst_bl | inst_pcaddu12i;
+ 
+ assign src2_is_imm   = inst_slli_w |
+                        inst_srli_w |
+                        inst_srai_w |
+                        inst_addi_w |
++                       inst_slti   |
++                       inst_sltui  |
++                       inst_andi   |
++                       inst_ori    |
++                       inst_xori   |
++                       inst_pcaddu12i|
+                        inst_ld_w   |
+                        inst_st_w   |
+                        inst_lu12i_w|
+@@ -424,10 +515,10 @@
+     .wdata  (rf_wdata )
+     );
+ 
+-assign rj_value  =(exe_eq_target && rj_read_need && ~exe_res_from_mem && (rj==exe_target))? alu_result :
++assign rj_value  =(exe_eq_target && rj_read_need && ~exe_res_from_mem && (rj==exe_target))? result :
+                   (mem_eq_target && rj_read_need && (rj==mem_target))? final_result  :
+                   (wb_eq_target && rj_read_need && (rj==wb_target))? wb_final_result :rf_rdata1;
+-assign rkd_value =(exe_eq_target && ~exe_res_from_mem && ((rk_read_need && (rk==exe_target)) || (rd_read_need && (rd==exe_target))))? alu_result :
++assign rkd_value =(exe_eq_target && ~exe_res_from_mem && ((rk_read_need && (rk==exe_target)) || (rd_read_need && (rd==exe_target))))? result :
+                   (mem_eq_target && ((rk_read_need && (rk==mem_target)) || (rd_read_need && (rd==mem_target))))? final_result  :
+                   (wb_eq_target && ((rk_read_need && (rk==wb_target)) || (rd_read_need && (rd==wb_target))))? wb_final_result :rf_rdata2;
+ assign rj_eq_rd = (rj_value == rkd_value);
+@@ -443,6 +534,44 @@
+ 
+ assign alu_src1 = src1_is_pc  ? id_pc[31:0] : rj_value;
+ assign alu_src2 = src2_is_imm ? imm : rkd_value;
++
++assign mul_src1 = !exe_op[2] ? {exe_src1[31],exe_src1[31:0]} : {1'b0,exe_src1[31:0]} ;
++assign mul_src2 = !exe_op[2] ? {exe_src2[31],exe_src2[31:0]} : {1'b0,exe_src2[31:0]} ;
++assign mul_result = $signed(mul_src1) * $signed(mul_src2);
++
++assign divisor_valid = exe_divisor_valid;
++assign dividend_valid = exe_dividend_valid;
++assign divisoru_valid = exe_divisoru_valid;
++assign dividendu_valid = exe_dividendu_valid;
++
++div_1 div (
++  .aclk(clk),                                      // input wire aclk
++  .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
++  .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
++  .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
++  .s_axis_dividend_tvalid(dividend_valid),  // input wire s_axis_dividend_tvalid
++  .s_axis_dividend_tready(dividend_ready),  // output wire s_axis_dividend_tready
++  .s_axis_dividend_tdata(exe_src1),    // input wire [31 : 0] s_axis_dividend_tdata
++  .m_axis_dout_tvalid(dou_valid),          // output wire m_axis_dout_tvalid
++  .m_axis_dout_tdata(div_result)            // output wire [63 : 0] m_axis_dout_tdata
++);
++
++div_gen_0 divu (
++  .aclk(clk),                                      // input wire aclk
++  .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
++  .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
++  .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
++  .s_axis_dividend_tvalid(dividendu_valid),  // input wire s_axis_dividend_tvalid
++  .s_axis_dividend_tready(dividendu_ready),  // output wire s_axis_dividend_tready
++  .s_axis_dividend_tdata(exe_src1),    // input wire [31 : 0] s_axis_dividend_tdata
++  .m_axis_dout_tvalid(douu_valid),          // output wire m_axis_dout_tvalid
++  .m_axis_dout_tdata(divu_result)            // output wire [63 : 0] m_axis_dout_tdata
++);
++
++assign div_mul_result =exe_op[1]? mul_result[63:0] :
++                       exe_op[2]? divu_result[63:0] :
++                                  div_result;
++
+ 
+ alu u_alu(
+     .alu_op     (exe_alu_op    ),
+@@ -450,6 +579,10 @@
+     .alu_src2   (exe_src2  ),               
+     .alu_result (alu_result)                
+     );
++    
++assign result= (exe_op[0] & exe_op[3])? div_mul_result[63:32] :
++               (exe_op[0] & !exe_op[3])? div_mul_result[31:0] :
++                                         alu_result;
+ 
+ assign data_sram_en    = exe_data_sram_en && exe_valid;
+ assign data_sram_we    = exe_data_sram_we;
+
