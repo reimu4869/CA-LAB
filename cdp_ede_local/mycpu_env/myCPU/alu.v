@@ -71,26 +71,18 @@ assign sltu_result[0]    = ~adder_cout;
 
 // bitwise operation
 assign and_result = alu_src1 & alu_src2;
-//bug8 "or"
-//2022/8/31 22:54
-assign or_result  = alu_src1 | alu_src2;
+assign or_result  = alu_src1 | alu_src2;// | alu_result;
 assign nor_result = ~or_result;
 assign xor_result = alu_src1 ^ alu_src2;
 assign lui_result = alu_src2;
 
 // SLL result
-
-//bug7 "sll,sra" the source of the alu are wrong
-//alu_src1 is the rj_value, alu_src2 is the imm or rk_value
-//2022/8/31 22:46
 assign sll_result = alu_src1 << alu_src2[4:0];   //rj << i5
 
-// SRL, SRA result
+// SRL, SRA result  
 assign sr64_result = {{32{op_sra & alu_src1[31]}}, alu_src1[31:0]} >> alu_src2[4:0]; //rj >> i5
 
-//bug9 sr_result is 32 bit
-//2022/8/31 23:18
-assign sr_result   = sr64_result[31:0];
+assign sr_result   = sr64_result[31:0];//
 
 // final result mux
 assign alu_result = ({32{op_add|op_sub}} & add_sub_result)
