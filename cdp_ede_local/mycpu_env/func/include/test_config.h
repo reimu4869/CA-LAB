@@ -24,8 +24,8 @@
 #define NOP_INSERT 0
 
 #define TEST1 1
-#define TEST2 0
-#define TEST3 0
+#define TEST2 1
+#define TEST3 1
 #define TEST4 0
 #define TEST5 0
 #define TEST6 0
