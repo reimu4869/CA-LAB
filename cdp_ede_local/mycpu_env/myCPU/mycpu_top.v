@@ -66,6 +66,9 @@ wire [63:0] op_31_26_d;    //指令码不同段
 wire [15:0] op_25_22_d;
 wire [ 3:0] op_21_20_d;
 wire [31:0] op_19_15_d;
+wire [31:0] op_14_10_d;
+wire [31:0] op_9_5_d; 
+wire [31:0] op_4_0_d;
 
 wire        inst_add_w;    //指令码判断
 wire        inst_sub_w;
@@ -117,6 +120,14 @@ wire        inst_ld_hu;
 //st.b, st.h
 wire        inst_st_b;
 wire        inst_st_h;
+//CSR
+wire        inst_csrrd;
+wire        inst_csrwd;
+wire        inst_csrxchg;
+//ERTN
+wire        inst_ertn;
+//syscall
+wire        inst_syscall;
 
 wire        need_ui5;
 wire        need_ui12;
@@ -180,7 +191,6 @@ wire exe_ready_go;
 wire exe_allowin;
 wire exe_to_mem_valid;
 reg exe_valid;
-//reg [11:0] exe_alu_op;
 reg [31:0] exe_pc;
 reg [ 4:0] exe_dest;
 reg [31:0] exe_src1;
@@ -205,6 +215,17 @@ reg        exe_inst_st_b;
 reg        exe_inst_st_h;
 reg        exe_inst_st_w;
 reg [31:0] exe_rkd_value;
+//CSR MEM
+reg [13:0] exe_csr_num;
+reg	       exe_csr_we;
+reg	[31:0] exe_csr_wmask;
+reg	[31:0] exe_csr_wvalue;
+reg	       exe_ertn_flush;
+reg        exe_inst_csr;
+
+reg	       exe_sys_ex;
+
+wire       exe_ex;
 
 //MEMreg
 wire mem_ready_go;
@@ -221,6 +242,18 @@ reg        mem_inst_ld_bu;
 reg        mem_inst_ld_h;
 reg        mem_inst_ld_hu;
 reg        mem_inst_ld_w;
+//CSR MEM
+reg [13:0] mem_csr_num;
+reg	       mem_csr_we;
+reg	[31:0] mem_csr_wmask;
+reg	[31:0] mem_csr_wvalue;
+reg	       mem_ertn_flush;
+reg        mem_inst_csr;
+
+reg	[31:0] mem_vaddr;
+reg	       mem_sys_ex;
+
+wire       mem_ex;
 
 //WBreg
 wire wb_ready_go;
@@ -232,6 +265,25 @@ reg [31:0] wb_pc;
 reg        wb_rf_we;
 reg [ 4:0] wb_dest;
 reg [31:0] wb_final_result;
+//CSR WB
+reg [13:0]  wb_csr_num;
+reg	        wb_csr_we;
+reg	[31:0]  wb_csr_wmask;
+reg	[31:0]  wb_csr_wvalue;
+reg	        wb_ertn_flush;
+reg         wb_inst_csr;
+
+wire	    wb_ex;
+wire [5:0]	wb_ecode;
+wire [8:0]	wb_esubcode;
+wire        csr_wr_en;
+
+reg	 [31:0] wb_vaddr;
+reg	        wb_sys_ex;
+
+wire [31:0] csr_rvalue;
+wire [31:0] ex_entry;
+wire 	    has_int;
 
 wire rj_read_need;
 wire rk_read_need;
@@ -244,6 +296,13 @@ wire [4:0] wb_target;
 wire exe_eq_target;
 wire mem_eq_target;
 wire wb_eq_target;
+
+//CSR RAW
+wire csr_exe_eq_target;                                 
+wire csr_mem_eq_target;
+wire csr_wb_eq_target;
+wire block_ld_eq_target;
+wire ex_sig;
 
 //load and store
 wire  [31:0] load_word;
@@ -260,6 +319,16 @@ wire  [3 :0] st_h_strb;
 wire  [3 :0] st_w_strb;
 wire  [3 :0] st_strb; 
 
+//CSR ds
+wire csr_eq_target;
+
+wire         inst_csr;
+wire         ertn_flush;
+wire         csr_we;
+wire  [31:0] csr_mask;
+wire  [14:0] csr_num;
+wire  [31:0] csr_wvalue;
+wire  [31:0] ertn_pc;
 
 always @(posedge clk) begin
     if(!resetn) begin
@@ -284,7 +353,10 @@ always @(posedge clk) begin
     if(!resetn) begin
         id_valid <= 1'b0;
     end
-    else if(br_taken_cancel && id_valid)begin
+    else if(wb_ex || ertn_flush)begin
+        id_valid <= 1'b0;
+    end
+    else if(br_taken_cancel)begin
         id_valid <= 1'b0;
     end
     else if(id_allowin)begin
@@ -302,6 +374,9 @@ always @(posedge clk) begin
     if(!resetn) begin
         exe_valid <= 1'b0;
         exe_op <=4'b0000;
+    end
+    else if(wb_ex || ertn_flush)begin
+        exe_valid <= 1'b0;
     end
     else if(exe_allowin)begin
         exe_valid <= id_to_exe_valid;
@@ -332,7 +407,15 @@ always @(posedge clk) begin
         exe_inst_st_b <= inst_st_b;
         exe_inst_st_w <= inst_st_w;
         exe_inst_st_h <= inst_st_h;
+
+        exe_sys_ex <= inst_syscall;
+        exe_ertn_flush <= inst_ertn;
         
+        exe_csr_we <= csr_we;
+        exe_csr_num <= csr_num;
+        exe_csr_wmask <= csr_mask;
+        exe_csr_wvalue <= csr_wvalue;
+        exe_inst_csr <= inst_csr;
     end
     else if((dividend_valid && dividend_ready) || (divisor_valid && divisor_ready) )begin
          exe_divisor_valid <= !(divisor_valid && divisor_ready);
@@ -346,6 +429,9 @@ end
 
 always @(posedge clk) begin
     if(!resetn) begin
+        mem_valid <= 1'b0;
+    end
+    else if(wb_ex || ertn_flush)begin
         mem_valid <= 1'b0;
     end
     else if(mem_allowin)begin
@@ -363,11 +449,24 @@ always @(posedge clk) begin
         mem_inst_ld_h <= exe_inst_ld_h;
         mem_inst_ld_hu <= exe_inst_ld_hu;
         mem_inst_ld_w <= exe_inst_ld_w;
+
+        mem_csr_num <= exe_csr_num;
+        mem_csr_we <= exe_csr_we;
+        mem_csr_wmask <= exe_csr_wmask;
+        mem_csr_wvalue <= exe_csr_wvalue;
+        mem_ertn_flush <= exe_ertn_flush;
+        mem_inst_csr <= exe_inst_csr;
+        
+        mem_vaddr <= alu_result;
+        mem_sys_ex <= exe_sys_ex;
     end
 end
 
 always @(posedge clk) begin
     if(!resetn) begin
+        wb_valid <= 1'b0;
+    end
+    else if(wb_ex | ertn_flush)begin
         wb_valid <= 1'b0;
     end
     else if(wb_allowin)begin
@@ -379,8 +478,31 @@ always @(posedge clk) begin
         wb_dest <= mem_dest;
         wb_final_result <= final_result;
         wb_rf_we <= mem_rf_we;
+
+        wb_csr_num <= mem_csr_num;
+        wb_csr_we  <= mem_csr_we;
+        wb_csr_wmask <= mem_csr_wmask;
+        wb_csr_wvalue <= mem_csr_wvalue;
+        wb_ertn_flush <= mem_ertn_flush;
+        wb_inst_csr <= mem_inst_csr;
+
+        wb_vaddr <= mem_vaddr;
+        wb_sys_ex <= mem_sys_ex;
     end
 end
+
+
+assign ex_sig = wb_ex | mem_ex | exe_ex;                //检查流水线中是否存在异常 
+
+//异常时不对流水线任何阶段进行阻塞, 由于流水线清空时并未直接清空IF级,且并未停止取指过程，防止阻塞时造成取指错误
+//可能可以修改
+//由于csr在wb阶段例化，从而仅需考虑CSR写寄存器时出现的写后读控制相关
+//CSR写后读相关判断，由于实现于wb级，无法进行前递，或只能在WB级前递，从而未实现前递功能
+assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
+assign csr_mem_eq_target = mem_eq_target & mem_eq_target & ~ex_sig;
+assign csr_wb_eq_target = wb_eq_target & wb_inst_csr & ~ex_sig;
+assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;            
+assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig;
 
 assign br_taken_cancel = id_ready_go && id_valid && br_taken ;
 
@@ -389,12 +511,12 @@ assign if_ready_go = 1'b1;
 assign if_allowin = !if_valid || if_ready_go && id_allowin;
 assign if_to_id_valid = if_valid && if_ready_go;
 
-assign id_ready_go = !(exe_eq_target && exe_res_from_mem && id_valid);
+assign id_ready_go = !(block_ld_eq_target && id_valid || csr_eq_target && id_valid);                
 assign id_allowin = !id_valid || id_ready_go && exe_allowin;
 assign id_to_exe_valid = id_valid & id_ready_go;
 
-assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2])? douu_valid :
-                      (exe_op[0]& !exe_op[1] & !exe_op[2])? dou_valid :
+assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //异常时不对流水线任何阶段进行阻塞
+                      (exe_op[0]& !exe_op[1] & !exe_op[2] & ~ex_sig)? dou_valid :
                                                             1'b1  ;
 assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
 assign exe_to_mem_valid = exe_valid && exe_ready_go;
@@ -410,7 +532,10 @@ assign wb_validout = wb_valid && wb_ready_go;
 
 //nextPC
 assign seq_pc   = if_pc + 3'h4;                 
-assign nextpc   = br_taken_cancel ? br_target : seq_pc;   //如果br_taken为1，跳转到目标pc，否则+4
+assign nextpc   = ertn_flush      ? ertn_pc:                            //nextPC选择器，优先级不确定是否正确，但能PASS
+                  wb_ex           ? ex_entry :
+                  br_taken_cancel ? br_target : 
+                  seq_pc;   //如果br_taken为1，跳转到目标pc，否则+4
 
 assign inst_sram_en    = resetn && id_ready_go && exe_ready_go;
 assign inst_sram_we    = 4'b0;
@@ -435,6 +560,9 @@ decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
 decoder_2_4  u_dec2(.in(op_21_20 ), .out(op_21_20_d ));
 decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
+decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //增加了针对后15位数的译码器
+decoder_5_32 u_dec5(.in(rj),.out(op_9_5_d));
+decoder_5_32 u_dec6(.in(rd),.out(op_4_0_d));
 
 assign inst_add_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
 assign inst_sub_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -488,6 +616,22 @@ assign inst_ld_bu  = op_31_26_d[6'h0a] & op_25_22_d[4'h8];
 assign inst_st_w   = op_31_26_d[6'h0a] & op_25_22_d[4'h6];
 assign inst_st_h   = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
 assign inst_st_b   = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
+//CSR
+assign inst_csrrd  = op_31_26_d[6'h01] & !inst[25:24] & op_9_5_d[5'h00];
+assign inst_csrwd  = op_31_26_d[6'h01] & !inst[25:24] & op_9_5_d[5'h01];
+assign inst_csrxchg = op_31_26_d[6'h01] & !inst[25:24] & ~op_9_5_d[5'h00] & ~op_9_5_d[5'h01];
+//SYS
+assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
+//ERTN
+assign inst_ertn = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0]
+                    & op_19_15_d[5'h10] & op_14_10_d[5'h0e] & op_9_5_d[5'h0]
+                    & op_4_0_d [5'h0];
+
+assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg;               //译码阶段得到CSR相关信息
+assign csr_we = inst_csrwd | inst_csrxchg;
+assign csr_num = inst[23:10];
+assign csr_mask = inst_csrxchg ? rj_value : 32'hffffffff;
+assign csr_wvalue = rkd_value;                          
 
 
 assign alu_op[ 0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w
@@ -523,8 +667,10 @@ assign rj_read_need = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_or |
                        inst_slli_w | inst_srli_w | inst_srai_w | inst_beq | inst_bne | inst_jirl | inst_ld_w | inst_st_w | inst_addi_w |
                        inst_ori | inst_xori | inst_andi | inst_sltui | inst_slti | inst_mul_w | inst_mulh_w | inst_mulh_wu | 
                        inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu | inst_sll_w | inst_srl_w | inst_sra_w 
-                       | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_h | inst_st_b;
-assign rd_read_need = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_h | inst_st_b;
+                       | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_h | inst_st_b 
+                       | inst_csrxchg;
+assign rd_read_need = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_h | inst_st_b |
+                        inst_csrwd | inst_csrxchg;
 assign rk_read_need = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_or | inst_and | inst_xor | inst_nor | 
                       inst_jirl | inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu
                       | inst_sll_w | inst_srl_w | inst_sra_w;
@@ -555,7 +701,8 @@ assign br_offs = need_si26 ? {{ 4{i26[25]}}, i26[25:0], 2'b0} :
 
 assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
-assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_h | inst_st_b;
+assign src_reg_is_rd = inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_st_w | inst_st_h | inst_st_b
+                        | inst_csrwd | inst_csrxchg;
 
 assign src1_is_pc    = inst_jirl | inst_bl | inst_pcaddu12i;
 
@@ -642,7 +789,8 @@ assign divisoru_valid = exe_divisoru_valid;
 assign dividendu_valid = exe_dividendu_valid;
 
 div_1 div (
-  .aclk(clk),                                      // input wire aclk
+  .aclk(clk),                               // input wire aclk
+  .aresetn(~ex_sig),                        // reset             
   .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -654,7 +802,8 @@ div_1 div (
 );
 
 div_gen_0 divu (
-  .aclk(clk),                                      // input wire aclk
+  .aclk(clk),                                  // input wire aclk
+  .aresetn(~ex_sig),                            //reset          
   .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -686,7 +835,7 @@ assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
                                     exe_rkd_value;
 
 //SRAM
-assign data_sram_en    = 1'b1;//exe_data_sram_en && exe_valid;//
+assign data_sram_en    = ~exe_ex & ~mem_ex & ~ex_sig;//exe_data_sram_en && exe_valid;        //发生异常时，不写内存
 assign data_sram_we    = exe_data_sram_we & {4{exe_valid}} & st_strb;//exe_data_sram_we;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = st_data;// from rkd_value
@@ -726,9 +875,40 @@ assign mem_result =
     ({32{mem_inst_ld_b | mem_inst_ld_bu}} & extended_byte) |
     ({32{mem_inst_ld_h | mem_inst_ld_hu}} & extended_half); 
 
-assign rf_we    = wb_rf_we && wb_valid;
+
+wire csr_wen = wb_valid & wb_csr_we;            //与上valid防止在清空流水线时对状态寄存器做出错误的修改
+assign ertn_flush = wb_valid & wb_ertn_flush;   
+assign csr_wr_en = wb_valid & wb_inst_csr;
+assign exe_ex = exe_valid & mem_sys_ex;      //exp12 only for SYS
+assign mem_ex = mem_valid & mem_sys_ex;      //exp12 only for SYS
+assign wb_ex = wb_valid & wb_sys_ex;        //exp12 only for SYS
+
+assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //防止wb阶段产生写寄存器操作，可能可以修改
 assign rf_waddr = wb_dest;
-assign rf_wdata = wb_final_result;
+assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         //写寄存器数据
+
+//Ecode Esubcode
+assign wb_ecode = {6{wb_sys_ex}} & 6'h0b;   //exp12 only for SYS
+assign wb_esubcode = 9'b0;                  //exp12 has no esubcode
+
+csr csr1(.clk(clk),
+        .reset(~resetn),                    //reset信号
+        .csr_re(1'b1),                      //没用，可以删了
+        .csr_num(wb_csr_num),               //状态寄存器编号
+        .csr_we(csr_wen),                   //状态寄存器写使能
+        .csr_wmask(wb_csr_wmask),           //掩码
+        .csr_wvalue(wb_csr_wvalue),         //写数据
+        .wb_ex(wb_ex),                      //异常信号
+        .ertn_flush(ertn_flush),            //ertn例外返回信号
+        .wb_ecode(wb_ecode),                //异常类型信号，在wb阶段编码得到
+        .wb_esubcode(wb_esubcode),          //同上
+        .wb_pc(wb_pc),                      //异常PC
+        .wb_vaddr(wb_vaddr),                //地址异常时的地址
+        .csr_rvalue(csr_rvalue),            //读数据
+        .ex_entry(ex_entry),                //例外PC入口
+        .ertn_pc(ertn_pc),                  //例外结束返回PC
+        .has_int(has_int)                   //中断存在，exp12未使用
+);
 
 // debug info generate
 assign debug_wb_pc       = wb_pc;
