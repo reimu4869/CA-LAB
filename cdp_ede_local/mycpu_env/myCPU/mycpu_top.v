@@ -492,9 +492,10 @@ always @(posedge clk) begin
 end
 
 
-assign ex_sig = wb_ex | mem_ex | exe_ex;                //检查流水线中是否存在异常 
+assign ex_sig = wb_ex | mem_ex | exe_ex;                //检查exe及之前的流水线中是否存在异常 
 
-//异常时不对流水线任何阶段进行阻塞, 由于流水线清空时并未直接清空IF级,且并未停止取指过程，防止阻塞时造成取指错误
+//排空流水线时，直到异常指令到达wb级之前，其余指令仍照旧执行，之后流水线清空采取把除IF级之外的所有valid信号置0实现
+//异常时，不对异常之后的流水线任何阶段进行阻塞, 由于流水线清空时并未直接清空IF级,且并未停止取指过程，防止此时阻塞时造成取指错误
 //可能可以修改
 //由于csr在wb阶段例化，从而仅需考虑CSR写寄存器时出现的写后读控制相关
 //CSR写后读相关判断，由于实现于wb级，无法进行前递，或只能在WB级前递，从而未实现前递功能
@@ -790,7 +791,7 @@ assign dividendu_valid = exe_dividendu_valid;
 
 div_1 div (
   .aclk(clk),                               // input wire aclk
-  .aresetn(~ex_sig),                        // reset             
+  .aresetn(~ex_sig),                        //reset,当exe级及之后的流水级出现异常时置0             
   .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -803,7 +804,7 @@ div_1 div (
 
 div_gen_0 divu (
   .aclk(clk),                                  // input wire aclk
-  .aresetn(~ex_sig),                            //reset          
+  .aresetn(~ex_sig),                            //reset,当exe级及之后的流水级出现异常时置0          
   .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
