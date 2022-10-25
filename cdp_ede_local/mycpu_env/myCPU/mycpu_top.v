@@ -62,7 +62,7 @@ wire [19:0] i20;
 wire [15:0] i16;
 wire [25:0] i26;
 
-wire [63:0] op_31_26_d;    //æŒ‡ä»¤ç ä¸åŒæ®µ
+wire [63:0] op_31_26_d;    //Ö¸ÁîÂë²»Í¬¶Î
 wire [15:0] op_25_22_d;
 wire [ 3:0] op_21_20_d;
 wire [31:0] op_19_15_d;
@@ -70,7 +70,7 @@ wire [31:0] op_14_10_d;
 wire [31:0] op_9_5_d; 
 wire [31:0] op_4_0_d;
 
-wire        inst_add_w;    //æŒ‡ä»¤ç åˆ¤æ–­
+wire        inst_add_w;    //Ö¸ÁîÂëÅĞ¶Ï
 wire        inst_sub_w;
 wire        inst_slt;
 wire        inst_slti;
@@ -106,13 +106,13 @@ wire        inst_div_w;
 wire        inst_div_wu;
 wire        inst_mod_w;
 wire        inst_mod_wu;
-//æ·»åŠ è½¬ç§»æŒ‡ä»¤ï¼šblt, bge, bltu, bgeu
+//Ìí¼Ó×ªÒÆÖ¸Áî£ºblt, bge, bltu, bgeu
 wire        inst_blt;
 wire        inst_bge;
 wire        inst_bltu;
 wire        inst_bgeu;
 wire        br_wait;
-//æ·»åŠ è®¿å­˜æŒ‡ä»¤ï¼šld.b, ld.h, ld.bu, ld.hu
+//Ìí¼Ó·Ã´æÖ¸Áî£ºld.b, ld.h, ld.bu, ld.hu
 wire        inst_ld_b;
 wire        inst_ld_h;
 wire        inst_ld_bu;
@@ -128,6 +128,14 @@ wire        inst_csrxchg;
 wire        inst_ertn;
 //syscall
 wire        inst_syscall;
+//break
+wire        inst_break;
+//rdcntvl_w inst_rdcntvh_w inst_rdcntid_w
+wire        inst_rdcntvl_w;
+wire        inst_rdcntvh_w;
+wire        inst_rdcntid_w;
+wire        res_from_counter;
+reg [63:0]  counter;
 
 wire        need_ui5;
 wire        need_ui12;
@@ -170,6 +178,11 @@ wire [31:0] result;
 wire [31:0] mem_result;
 wire [31:0] final_result;
 
+wire ADEF;
+wire ALE;
+wire INE;
+wire ertn_block;
+
 //IFreg
 wire if_to_id_valid;
 wire if_ready_go;
@@ -178,6 +191,8 @@ wire validin;
 reg  [31:0] if_pc;
 reg         if_valid;
 
+reg if_adef_ex;
+
 //IDreg
 wire id_ready_go;
 wire id_allowin;
@@ -185,6 +200,8 @@ wire id_to_exe_valid;
 reg        id_valid;
 reg [31:0] id_pc;
 reg [31:0] inst;
+
+reg id_adef_ex;
 
 //EXEreg
 wire exe_ready_go;
@@ -202,6 +219,7 @@ reg [ 3:0] exe_data_sram_we;
 reg        exe_data_sram_en;
 reg [31:0] exe_data_sram_wdata;
 reg [ 3:0] exe_op;
+reg [ 1:0] exe_counter;//exe_counter[1]´ú±í½á¹ûÊÇ·ñÀ´×Ôcounter£¬exe_counter[0]±íÊ¾½á¹ûÔÚ¸ßÎ»»¹ÊÇµÍÎ»¡£
 reg        exe_dividend_valid;
 reg        exe_divisor_valid;
 reg        exe_dividendu_valid;
@@ -214,6 +232,7 @@ reg        exe_inst_ld_w;
 reg        exe_inst_st_b;
 reg        exe_inst_st_h;
 reg        exe_inst_st_w;
+reg        exe_inst_rdcntid_w;
 reg [31:0] exe_rkd_value;
 //CSR MEM
 reg [13:0] exe_csr_num;
@@ -224,6 +243,11 @@ reg	       exe_ertn_flush;
 reg        exe_inst_csr;
 
 reg	       exe_sys_ex;
+reg	       exe_brk_ex;
+reg        exe_ine_ex;
+reg        exe_adef_ex;
+reg        exe_ale_ex;
+reg        exe_int_ex;
 
 wire       exe_ex;
 
@@ -242,6 +266,7 @@ reg        mem_inst_ld_bu;
 reg        mem_inst_ld_h;
 reg        mem_inst_ld_hu;
 reg        mem_inst_ld_w;
+reg        mem_inst_rdcntid_w;
 //CSR MEM
 reg [13:0] mem_csr_num;
 reg	       mem_csr_we;
@@ -252,6 +277,11 @@ reg        mem_inst_csr;
 
 reg	[31:0] mem_vaddr;
 reg	       mem_sys_ex;
+reg	       mem_brk_ex;
+reg        mem_ine_ex;
+reg        mem_adef_ex;
+reg        mem_ale_ex;
+reg        mem_int_ex;
 
 wire       mem_ex;
 
@@ -272,6 +302,7 @@ reg	[31:0]  wb_csr_wmask;
 reg	[31:0]  wb_csr_wvalue;
 reg	        wb_ertn_flush;
 reg         wb_inst_csr;
+reg         wb_inst_rdcntid_w;
 
 wire	    wb_ex;
 wire [5:0]	wb_ecode;
@@ -279,7 +310,12 @@ wire [8:0]	wb_esubcode;
 wire        csr_wr_en;
 
 reg	 [31:0] wb_vaddr;
-reg	        wb_sys_ex;
+reg	       wb_sys_ex;
+reg	       wb_brk_ex;
+reg        wb_ine_ex;
+reg        wb_adef_ex;
+reg        wb_ale_ex;
+reg        wb_int_ex;
 
 wire [31:0] csr_rvalue;
 wire [31:0] ex_entry;
@@ -330,6 +366,17 @@ wire  [14:0] csr_num;
 wire  [31:0] csr_wvalue;
 wire  [31:0] ertn_pc;
 
+//COUNTER
+always @(posedge clk) begin
+    if(!resetn) begin
+        counter <= 64'b0; 
+    end
+    else begin
+        counter <= counter + 1'b1;
+    end
+    
+end
+
 always @(posedge clk) begin
     if(!resetn) begin
         if_valid <= 1'b0; 
@@ -337,7 +384,7 @@ always @(posedge clk) begin
     else if(if_allowin)begin
         if_valid <= validin;
     end
-    else if(br_taken_cancel)begin
+    else if(br_taken_cancel || ertn_block)begin
         if_valid <= 1'b0;
     end
     
@@ -346,6 +393,7 @@ always @(posedge clk) begin
     end
     else if(validin && if_allowin)  begin
         if_pc <= nextpc;
+        if_adef_ex <= ADEF;
     end
 end
 
@@ -356,7 +404,7 @@ always @(posedge clk) begin
     else if(wb_ex || ertn_flush)begin
         id_valid <= 1'b0;
     end
-    else if(br_taken_cancel)begin
+    else if(br_taken_cancel || ertn_block)begin
         id_valid <= 1'b0;
     end
     else if(id_allowin)begin
@@ -367,6 +415,7 @@ always @(posedge clk) begin
     if(if_to_id_valid && id_allowin)begin
         inst <= inst_sram_rdata;
         id_pc <= if_pc;
+        id_adef_ex <= if_adef_ex;
     end
 end
 
@@ -407,9 +456,16 @@ always @(posedge clk) begin
         exe_inst_st_b <= inst_st_b;
         exe_inst_st_w <= inst_st_w;
         exe_inst_st_h <= inst_st_h;
+        exe_inst_rdcntid_w <= inst_rdcntid_w;
 
         exe_sys_ex <= inst_syscall;
+        exe_brk_ex <= inst_break;
+        exe_ine_ex <= INE;
+        exe_int_ex <= has_int;
+        exe_adef_ex <= id_adef_ex;
         exe_ertn_flush <= inst_ertn;
+        
+        exe_counter <= {res_from_counter,inst_rdcntvh_w};
         
         exe_csr_we <= csr_we;
         exe_csr_num <= csr_num;
@@ -443,7 +499,7 @@ always @(posedge clk) begin
         mem_dest <= exe_dest;
         mem_res_from_mem <= exe_res_from_mem;
         mem_rf_we <= exe_rf_we;
-        mem_alu_result <= result;
+        mem_alu_result <= result;  //ÊÂÊµÉÏ¸ÃÃüÃûÒÑ¾­²»×¼È·£¬ÒòÎª»¹°üº¬ÁËÀ´×ÔcounterµÄ½á¹û£¬µ«ÎªÁË·½±ã£¬ÈÔÈ»ÑØÓÃ
         mem_inst_ld_b <= exe_inst_ld_b;
         mem_inst_ld_bu <= exe_inst_ld_bu;
         mem_inst_ld_h <= exe_inst_ld_h;
@@ -456,9 +512,15 @@ always @(posedge clk) begin
         mem_csr_wvalue <= exe_csr_wvalue;
         mem_ertn_flush <= exe_ertn_flush;
         mem_inst_csr <= exe_inst_csr;
+        mem_inst_rdcntid_w <= exe_inst_rdcntid_w;
         
         mem_vaddr <= alu_result;
         mem_sys_ex <= exe_sys_ex;
+        mem_brk_ex <= exe_brk_ex;
+        mem_ale_ex <= ALE;
+        mem_ine_ex <= exe_ine_ex;
+        mem_int_ex <= exe_int_ex;
+        mem_adef_ex <= exe_adef_ex;
     end
 end
 
@@ -485,38 +547,44 @@ always @(posedge clk) begin
         wb_csr_wvalue <= mem_csr_wvalue;
         wb_ertn_flush <= mem_ertn_flush;
         wb_inst_csr <= mem_inst_csr;
+        wb_inst_rdcntid_w <= mem_inst_rdcntid_w;
 
         wb_vaddr <= mem_vaddr;
         wb_sys_ex <= mem_sys_ex;
+        wb_brk_ex <= mem_brk_ex;
+        wb_ale_ex <= mem_ale_ex;
+        wb_ine_ex <= mem_ine_ex;
+        wb_int_ex <= mem_int_ex;
+        wb_adef_ex <= mem_adef_ex;
     end
 end
 
 
-assign ex_sig = wb_ex | mem_ex | exe_ex;                //æ£€æŸ¥exeåŠä¹‹å‰çš„æµæ°´çº¿ä¸­æ˜¯å¦å­˜åœ¨å¼‚å¸¸ 
+assign ex_sig = wb_ex | mem_ex | exe_ex;                //¼ì²éexe¼°Ö®Ç°µÄÁ÷Ë®ÏßÖĞÊÇ·ñ´æÔÚÒì³£ 
 
-//æ’ç©ºæµæ°´çº¿æ—¶ï¼Œç›´åˆ°å¼‚å¸¸æŒ‡ä»¤åˆ°è¾¾wbçº§ä¹‹å‰ï¼Œå…¶ä½™æŒ‡ä»¤ä»ç…§æ—§æ‰§è¡Œï¼Œä¹‹åæµæ°´çº¿æ¸…ç©ºé‡‡å–æŠŠé™¤IFçº§ä¹‹å¤–çš„æ‰€æœ‰validä¿¡å·ç½®0å®ç°
-//å¼‚å¸¸æ—¶ï¼Œä¸å¯¹å¼‚å¸¸ä¹‹åçš„æµæ°´çº¿ä»»ä½•é˜¶æ®µè¿›è¡Œé˜»å¡, ç”±äºæµæ°´çº¿æ¸…ç©ºæ—¶å¹¶æœªç›´æ¥æ¸…ç©ºIFçº§,ä¸”å¹¶æœªåœæ­¢å–æŒ‡è¿‡ç¨‹ï¼Œé˜²æ­¢æ­¤æ—¶é˜»å¡æ—¶é€ æˆå–æŒ‡é”™è¯¯
-//å¯èƒ½å¯ä»¥ä¿®æ”¹
-//ç”±äºcsråœ¨wbé˜¶æ®µä¾‹åŒ–ï¼Œä»è€Œä»…éœ€è€ƒè™‘CSRå†™å¯„å­˜å™¨æ—¶å‡ºç°çš„å†™åè¯»æ§åˆ¶ç›¸å…³
-//CSRå†™åè¯»ç›¸å…³åˆ¤æ–­ï¼Œç”±äºå®ç°äºwbçº§ï¼Œæ— æ³•è¿›è¡Œå‰é€’ï¼Œæˆ–åªèƒ½åœ¨WBçº§å‰é€’ï¼Œä»è€Œæœªå®ç°å‰é€’åŠŸèƒ½
+//ÅÅ¿ÕÁ÷Ë®ÏßÊ±£¬Ö±µ½Òì³£Ö¸Áîµ½´ïwb¼¶Ö®Ç°£¬ÆäÓàÖ¸ÁîÈÔÕÕ¾ÉÖ´ĞĞ£¬Ö®ºóÁ÷Ë®ÏßÇå¿Õ²ÉÈ¡°Ñ³ıIF¼¶Ö®ÍâµÄËùÓĞvalidĞÅºÅÖÃ0ÊµÏÖ
+//Òì³£Ê±£¬²»¶ÔÒì³£Ö®ºóµÄÁ÷Ë®ÏßÈÎºÎ½×¶Î½øĞĞ×èÈû, ÓÉÓÚÁ÷Ë®ÏßÇå¿ÕÊ±²¢Î´Ö±½ÓÇå¿ÕIF¼¶,ÇÒ²¢Î´Í£Ö¹È¡Ö¸¹ı³Ì£¬·ÀÖ¹´ËÊ±×èÈûÊ±Ôì³ÉÈ¡Ö¸´íÎó
+//¿ÉÄÜ¿ÉÒÔĞŞ¸Ä
+//ÓÉÓÚcsrÔÚwb½×¶ÎÀı»¯£¬´Ó¶ø½öĞè¿¼ÂÇCSRĞ´¼Ä´æÆ÷Ê±³öÏÖµÄĞ´ºó¶Á¿ØÖÆÏà¹Ø
+//CSRĞ´ºó¶ÁÏà¹ØÅĞ¶Ï£¬ÓÉÓÚÊµÏÖÓÚwb¼¶£¬ÎŞ·¨½øĞĞÇ°µİ£¬»òÖ»ÄÜÔÚWB¼¶Ç°µİ£¬´Ó¶øÎ´ÊµÏÖÇ°µİ¹¦ÄÜ
 assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
 assign csr_mem_eq_target = mem_eq_target & mem_eq_target & ~ex_sig;
 assign csr_wb_eq_target = wb_eq_target & wb_inst_csr & ~ex_sig;
 assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;            
 assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig;
 
-assign br_taken_cancel = id_ready_go && id_valid && br_taken ;
+assign br_taken_cancel = id_ready_go && id_valid && br_taken  ;
 
 assign validin =1'b1;
 assign if_ready_go = 1'b1;
 assign if_allowin = !if_valid || if_ready_go && id_allowin;
 assign if_to_id_valid = if_valid && if_ready_go;
 
-assign id_ready_go = !(block_ld_eq_target && id_valid || csr_eq_target && id_valid);                
+assign id_ready_go = (!(block_ld_eq_target && id_valid || csr_eq_target && id_valid )) || ertn_flush;                
 assign id_allowin = !id_valid || id_ready_go && exe_allowin;
 assign id_to_exe_valid = id_valid & id_ready_go;
 
-assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //å¼‚å¸¸æ—¶ä¸å¯¹æµæ°´çº¿ä»»ä½•é˜¶æ®µè¿›è¡Œé˜»å¡
+assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //Òì³£Ê±²»¶ÔÁ÷Ë®ÏßÈÎºÎ½×¶Î½øĞĞ×èÈû
                       (exe_op[0]& !exe_op[1] & !exe_op[2] & ~ex_sig)? dou_valid :
                                                             1'b1  ;
 assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
@@ -533,12 +601,12 @@ assign wb_validout = wb_valid && wb_ready_go;
 
 //nextPC
 assign seq_pc   = if_pc + 3'h4;                 
-assign nextpc   = ertn_flush      ? ertn_pc:                            //nextPCé€‰æ‹©å™¨ï¼Œä¼˜å…ˆçº§ä¸ç¡®å®šæ˜¯å¦æ­£ç¡®ï¼Œä½†èƒ½PASS
+assign nextpc   = ertn_flush      ? ertn_pc:                            //nextPCÑ¡ÔñÆ÷£¬ÓÅÏÈ¼¶²»È·¶¨ÊÇ·ñÕıÈ·£¬µ«ÄÜPASS
                   wb_ex           ? ex_entry :
                   br_taken_cancel ? br_target : 
-                  seq_pc;   //å¦‚æœbr_takenä¸º1ï¼Œè·³è½¬åˆ°ç›®æ ‡pcï¼Œå¦åˆ™+4
+                  seq_pc;   //Èç¹ûbr_takenÎª1£¬Ìø×ªµ½Ä¿±êpc£¬·ñÔò+4
 
-assign inst_sram_en    = resetn && id_ready_go && exe_ready_go;
+assign inst_sram_en    = (resetn && id_ready_go && exe_ready_go)||ertn_flush;
 assign inst_sram_we    = 4'b0;
 assign inst_sram_addr  = nextpc;
 assign inst_sram_wdata = 32'b0;
@@ -561,7 +629,7 @@ decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
 decoder_2_4  u_dec2(.in(op_21_20 ), .out(op_21_20_d ));
 decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
-decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //å¢åŠ äº†é’ˆå¯¹å15ä½æ•°çš„è¯‘ç å™¨
+decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //Ôö¼ÓÁËÕë¶Ôºó15Î»ÊıµÄÒëÂëÆ÷
 decoder_5_32 u_dec5(.in(rj),.out(op_9_5_d));
 decoder_5_32 u_dec6(.in(rd),.out(op_4_0_d));
 
@@ -601,7 +669,7 @@ assign inst_beq    = op_31_26_d[6'h16];
 assign inst_bne    = op_31_26_d[6'h17];
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
 assign inst_pcaddu12i=op_31_26_d[6'h07] & ~inst[25];
-//è¯‘ç ï¼šæ·»åŠ çš„è½¬ç§»æŒ‡ä»¤
+//ÒëÂë£ºÌí¼ÓµÄ×ªÒÆÖ¸Áî
 assign inst_blt    = op_31_26_d[6'h18];
 assign inst_bge    = op_31_26_d[6'h19];
 assign inst_bltu   = op_31_26_d[6'h1a];
@@ -623,14 +691,35 @@ assign inst_csrwd  = op_31_26_d[6'h01] & !inst[25:24] & op_9_5_d[5'h01];
 assign inst_csrxchg = op_31_26_d[6'h01] & !inst[25:24] & ~op_9_5_d[5'h00] & ~op_9_5_d[5'h01];
 //SYS
 assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
+//BRK
+assign inst_break = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h14];
 //ERTN
 assign inst_ertn = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0]
                     & op_19_15_d[5'h10] & op_14_10_d[5'h0e] & op_9_5_d[5'h0]
                     & op_4_0_d [5'h0];
+//£ºrdcntvl.w,rdcntvh.w ºÍ rdcntid
+assign inst_rdcntvl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_9_5_d[5'h0];
+assign inst_rdcntvh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h19] & op_9_5_d[5'h0]; 
+assign inst_rdcntid_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_4_0_d[5'h0];
+                    
+assign INE=~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor | inst_slli_w | 
+            inst_srli_w | inst_srai_w | inst_sll_w | inst_srl_w | inst_sra_w | inst_mul_w | inst_mulh_w | inst_mulh_wu | 
+            inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu | inst_addi_w |inst_slti | inst_sltui | inst_andi | 
+            inst_ori | inst_xori | inst_jirl | inst_b | inst_bl | inst_beq | inst_bne | inst_lu12i_w  | inst_pcaddu12i | 
+            inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_ld_w | inst_ld_h | inst_ld_b | inst_ld_hu | inst_ld_bu
+            | inst_st_w | inst_st_h | inst_st_b | inst_csrrd | inst_csrwd  | inst_csrxchg | inst_syscall | inst_break |
+            inst_ertn | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w);
+             
+assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_en) ;
+assign ALE  = (exe_inst_ld_h | exe_inst_ld_hu | exe_inst_st_h) & alu_result[0] ||(exe_inst_ld_w | exe_inst_st_w) &(alu_result[1:0]!=2'b00)  ;
 
-assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg;               //è¯‘ç é˜¶æ®µå¾—åˆ°CSRç›¸å…³ä¿¡æ¯
+assign ertn_block = (!exe_ready_go)?1'b0:
+                     wb_ertn_flush? 1'b0 :(exe_ertn_flush | mem_ertn_flush |inst_ertn);
+
+
+assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg | inst_rdcntid_w;               //ÒëÂë½×¶ÎµÃµ½CSRÏà¹ØĞÅÏ¢
 assign csr_we = inst_csrwd | inst_csrxchg;
-assign csr_num = inst[23:10];
+assign csr_num = inst_rdcntid_w? 14'h0040:inst[23:10];
 assign csr_mask = inst_csrxchg ? rj_value : 32'hffffffff;
 assign csr_wvalue = rkd_value;                          
 
@@ -651,15 +740,15 @@ assign alu_op[ 9] = inst_srli_w | inst_srl_w;
 assign alu_op[10] = inst_srai_w | inst_sra_w;
 assign alu_op[11] = inst_lu12i_w;
 assign alu_op2[0] = inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu;
-assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //ç»“æœæ˜¯å¦ä¸ºä¹˜æ³•å™¨è¾“å‡º
-assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //æ˜¯å¦ä¸ºæ— ç¬¦å·æ•°
-assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //ç»“æœæ˜¯å¦ä½äºé«˜ä½
+assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //½á¹ûÊÇ·ñÎª³Ë·¨Æ÷Êä³ö
+assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //ÊÇ·ñÎªÎŞ·ûºÅÊı
+assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //½á¹ûÊÇ·ñÎ»ÓÚ¸ßÎ»
 
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_ui12  =  inst_andi | inst_ori | inst_xori;
 
-assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui | inst_st_h | inst_st_b;//æ·»åŠ äº†exp11ä¸­æ·»åŠ çš„è®¿å­˜æŒ‡ä»¤
-assign need_si16  =  inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;//æ·»åŠ äº†exp11ä¸­æ·»åŠ çš„4æ¡è½¬ç§»æŒ‡ä»¤: bge, blt, bgeu, bltu
+assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui | inst_st_h | inst_st_b;//Ìí¼ÓÁËexp11ÖĞÌí¼ÓµÄ·Ã´æÖ¸Áî
+assign need_si16  =  inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;//Ìí¼ÓÁËexp11ÖĞÌí¼ÓµÄ4Ìõ×ªÒÆÖ¸Áî: bge, blt, bgeu, bltu
 assign need_si20  =  inst_lu12i_w | inst_pcaddu12i;
 assign need_si26  =  inst_b | inst_bl;
 assign src2_is_4  =  inst_jirl | inst_bl;
@@ -730,11 +819,13 @@ assign src2_is_imm   = inst_slli_w |
                        inst_st_b;
 
 assign res_from_mem  = inst_ld_w | inst_ld_b |inst_ld_h | inst_ld_bu |inst_ld_hu;
+assign res_from_counter = inst_rdcntvl_w | inst_rdcntvh_w;
 assign dst_is_r1     = inst_bl;
 
 assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_st_h & ~inst_st_b;
 assign mem_we        = inst_st_w | inst_st_h | inst_st_b;
-assign dest          = dst_is_r1 ? 5'd1 : rd;
+assign dest          = dst_is_r1 ? 5'd1 :
+                       inst_rdcntid_w? rj: rd;
 
 assign rf_raddr1 = rj;
 assign rf_raddr2 = src_reg_is_rd ? rd :rk;
@@ -755,7 +846,7 @@ assign rj_value  =(exe_eq_target && rj_read_need && ~exe_res_from_mem && (rj==ex
 assign rkd_value =(exe_eq_target && ~exe_res_from_mem && ((rk_read_need && (rk==exe_target)) || (rd_read_need && (rd==exe_target))))? result :
                   (mem_eq_target && ((rk_read_need && (rk==mem_target)) || (rd_read_need && (rd==mem_target))))? final_result  :
                   (wb_eq_target && ((rk_read_need && (rk==wb_target)) || (rd_read_need && (rd==wb_target))))? wb_final_result :rf_rdata2;
-//è·³è½¬æ¡ä»¶åˆ¤æ–­
+//Ìø×ªÌõ¼şÅĞ¶Ï
 assign rj_eq_rd = (rj_value == rkd_value);
 assign rj_lt_rd_u = (rj_value < rkd_value);
 assign rj_ge_rd_u = !rj_lt_rd_u;
@@ -766,7 +857,7 @@ assign rj_lt_rd =
 assign rj_ge_rd = !rj_lt_rd;
 assign br_taken =  inst_beq  &&  rj_eq_rd
                    || inst_bne  && !rj_eq_rd
-                   /*æ·»åŠ è·³è½¬æ¡ä»¶åˆ¤æ–­*/
+                   /*Ìí¼ÓÌø×ªÌõ¼şÅĞ¶Ï*/
                    || inst_bltu && rj_lt_rd_u
                    || inst_bgeu && rj_ge_rd_u
                    || inst_blt && rj_lt_rd
@@ -789,9 +880,9 @@ assign dividend_valid = exe_dividend_valid;
 assign divisoru_valid = exe_divisoru_valid;
 assign dividendu_valid = exe_dividendu_valid;
 
-div_1 div (
+div_1 div (                                   //ÃüÃûÊ±³ö´í²Å¸ü¸ÄÃû×Ö£¬¿ÉºöÂÔ
   .aclk(clk),                               // input wire aclk
-  .aresetn(~ex_sig),                        //reset,å½“exeçº§åŠä¹‹åçš„æµæ°´çº§å‡ºç°å¼‚å¸¸æ—¶ç½®0             
+  .aresetn(~ex_sig),                        //reset,µ±exe¼¶¼°Ö®ºóµÄÁ÷Ë®¼¶³öÏÖÒì³£Ê±ÖÃ0             
   .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -804,7 +895,7 @@ div_1 div (
 
 div_gen_0 divu (
   .aclk(clk),                                  // input wire aclk
-  .aresetn(~ex_sig),                            //reset,å½“exeçº§åŠä¹‹åçš„æµæ°´çº§å‡ºç°å¼‚å¸¸æ—¶ç½®0          
+  .aresetn(~ex_sig),                            //reset,µ±exe¼¶¼°Ö®ºóµÄÁ÷Ë®¼¶³öÏÖÒì³£Ê±ÖÃ0          
   .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -829,6 +920,8 @@ alu u_alu(
     
 assign result= (exe_op[0] & exe_op[3])? div_mul_result[63:32] :
                (exe_op[0] & !exe_op[3])? div_mul_result[31:0] :
+               (exe_counter[0] & exe_counter[1]) ? counter[63:32]:
+               (exe_counter[0] & exe_counter[1]) ? counter[31:0]:            
                                          alu_result;
 //store
 assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
@@ -836,7 +929,7 @@ assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
                                     exe_rkd_value;
 
 //SRAM
-assign data_sram_en    = ~exe_ex & ~mem_ex & ~ex_sig;//exe_data_sram_en && exe_valid;        //å‘ç”Ÿå¼‚å¸¸æ—¶ï¼Œä¸å†™å†…å­˜
+assign data_sram_en    = ~exe_ex & ~mem_ex & ~ex_sig;//exe_data_sram_en && exe_valid;        //·¢ÉúÒì³£Ê±£¬²»Ğ´ÄÚ´æ
 assign data_sram_we    = exe_data_sram_we & {4{exe_valid}} & st_strb;//exe_data_sram_we;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = st_data;// from rkd_value
@@ -877,38 +970,44 @@ assign mem_result =
     ({32{mem_inst_ld_h | mem_inst_ld_hu}} & extended_half); 
 
 
-wire csr_wen = wb_valid & wb_csr_we;            //ä¸ä¸Švalidé˜²æ­¢åœ¨æ¸…ç©ºæµæ°´çº¿æ—¶å¯¹çŠ¶æ€å¯„å­˜å™¨åšå‡ºé”™è¯¯çš„ä¿®æ”¹
+wire csr_wen = wb_valid & wb_csr_we;            //ÓëÉÏvalid·ÀÖ¹ÔÚÇå¿ÕÁ÷Ë®ÏßÊ±¶Ô×´Ì¬¼Ä´æÆ÷×ö³ö´íÎóµÄĞŞ¸Ä
 assign ertn_flush = wb_valid & wb_ertn_flush;   
 assign csr_wr_en = wb_valid & wb_inst_csr;
-assign exe_ex = exe_valid & mem_sys_ex;      //exp12 only for SYS
-assign mem_ex = mem_valid & mem_sys_ex;      //exp12 only for SYS
-assign wb_ex = wb_valid & wb_sys_ex;        //exp12 only for SYS
+assign exe_ex = exe_valid & (exe_sys_ex | exe_brk_ex | exe_int_ex | exe_ine_ex | exe_adef_ex | ALE);      
+assign mem_ex = mem_valid & (mem_sys_ex | mem_brk_ex | mem_int_ex | mem_ine_ex | mem_adef_ex | mem_ale_ex);      
+assign wb_ex = wb_valid & (wb_sys_ex | wb_brk_ex | wb_ine_ex | wb_int_ex | wb_adef_ex | wb_ale_ex);    
 
-assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //é˜²æ­¢wbé˜¶æ®µäº§ç”Ÿå†™å¯„å­˜å™¨æ“ä½œï¼Œå¯èƒ½å¯ä»¥ä¿®æ”¹
+assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //·ÀÖ¹wb½×¶Î²úÉúĞ´¼Ä´æÆ÷²Ù×÷£¬¿ÉÄÜ¿ÉÒÔĞŞ¸Ä
 assign rf_waddr = wb_dest;
-assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         //å†™å¯„å­˜å™¨æ•°æ®
+assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         //Ğ´¼Ä´æÆ÷Êı¾İ
 
 //Ecode Esubcode
-assign wb_ecode = {6{wb_sys_ex}} & 6'h0b;   //exp12 only for SYS
-assign wb_esubcode = 9'b0;                  //exp12 has no esubcode
+assign wb_ecode = wb_int_ex? 6'h00:
+                  wb_adef_ex? 6'h08:
+                  wb_sys_ex? 6'h0b:
+                  wb_brk_ex? 6'h0c:
+                  wb_ine_ex? 6'h0d:
+                             6'h09;
+ //exp12 only for SYS
+assign wb_esubcode = 9'b0;                  //exp13 has no esubcode
 
 csr csr1(.clk(clk),
-        .reset(~resetn),                    //resetä¿¡å·
-        .csr_re(1'b1),                      //æ²¡ç”¨ï¼Œå¯ä»¥åˆ äº†
-        .csr_num(wb_csr_num),               //çŠ¶æ€å¯„å­˜å™¨ç¼–å·
-        .csr_we(csr_wen),                   //çŠ¶æ€å¯„å­˜å™¨å†™ä½¿èƒ½
-        .csr_wmask(wb_csr_wmask),           //æ©ç 
-        .csr_wvalue(wb_csr_wvalue),         //å†™æ•°æ®
-        .wb_ex(wb_ex),                      //å¼‚å¸¸ä¿¡å·
-        .ertn_flush(ertn_flush),            //ertnä¾‹å¤–è¿”å›ä¿¡å·
-        .wb_ecode(wb_ecode),                //å¼‚å¸¸ç±»å‹ä¿¡å·ï¼Œåœ¨wbé˜¶æ®µç¼–ç å¾—åˆ°
-        .wb_esubcode(wb_esubcode),          //åŒä¸Š
-        .wb_pc(wb_pc),                      //å¼‚å¸¸PC
-        .wb_vaddr(wb_vaddr),                //åœ°å€å¼‚å¸¸æ—¶çš„åœ°å€
-        .csr_rvalue(csr_rvalue),            //è¯»æ•°æ®
-        .ex_entry(ex_entry),                //ä¾‹å¤–PCå…¥å£
-        .ertn_pc(ertn_pc),                  //ä¾‹å¤–ç»“æŸè¿”å›PC
-        .has_int(has_int)                   //ä¸­æ–­å­˜åœ¨ï¼Œexp12æœªä½¿ç”¨
+        .reset(~resetn),                    //resetĞÅºÅ
+        .csr_re(1'b1),                      //Ã»ÓÃ£¬¿ÉÒÔÉ¾ÁË
+        .csr_num(wb_csr_num),               //×´Ì¬¼Ä´æÆ÷±àºÅ
+        .csr_we(csr_wen),                   //×´Ì¬¼Ä´æÆ÷Ğ´Ê¹ÄÜ
+        .csr_wmask(wb_csr_wmask),           //ÑÚÂë
+        .csr_wvalue(wb_csr_wvalue),         //Ğ´Êı¾İ
+        .wb_ex(wb_ex),                      //Òì³£ĞÅºÅ
+        .ertn_flush(ertn_flush),            //ertnÀıÍâ·µ»ØĞÅºÅ
+        .wb_ecode(wb_ecode),                //Òì³£ÀàĞÍĞÅºÅ£¬ÔÚwb½×¶Î±àÂëµÃµ½
+        .wb_esubcode(wb_esubcode),          //Í¬ÉÏ
+        .wb_pc(wb_pc),                      //Òì³£PC
+        .wb_vaddr(wb_vaddr),                //µØÖ·Òì³£Ê±µÄµØÖ·
+        .csr_rvalue(csr_rvalue),            //¶ÁÊı¾İ
+        .ex_entry(ex_entry),                //ÀıÍâPCÈë¿Ú
+        .ertn_pc(ertn_pc),                  //ÀıÍâ½áÊø·µ»ØPC
+        .has_int(has_int)                   //ÖĞ¶Ï´æÔÚ£¬exp12Î´Ê¹ÓÃ
 );
 
 // debug info generate
