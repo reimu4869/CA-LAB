@@ -7,12 +7,26 @@ module mycpu_top(
     output wire [31:0] inst_sram_addr,
     output wire [31:0] inst_sram_wdata,
     input  wire [31:0] inst_sram_rdata,
+    //add:
+    output wire        inst_sram_req,  // 
+    output wire        inst_sram_wr,  //
+    output wire [ 1:0] inst_sram_size,//
+    output wire [ 3:0] inst_sram_wstrb,//
+    input              inst_sram_addr_ok,
+    input              inst_sram_data_ok,
     // data sram interface
     output wire        data_sram_en,
     output wire [ 3:0] data_sram_we,
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
     input  wire [31:0] data_sram_rdata,
+    //add:
+    output wire        data_sram_req,     
+    output wire        data_sram_wr,      
+    output wire [ 1:0] data_sram_size,     
+    output wire [ 3:0] data_sram_wstrb,    
+    input              data_sram_addr_ok,   
+    input              data_sram_data_ok,
     // trace debug interface
     output wire [31:0] debug_wb_pc,
     output wire [ 3:0] debug_wb_rf_we,
@@ -43,6 +57,7 @@ wire        dst_is_r1;
 wire        gr_we;
 wire        mem_we;
 wire        src_reg_is_rd;
+wire        br_stall;
 wire [4: 0] dest;
 wire [31:0] rj_value;
 wire [31:0] rkd_value;
@@ -62,7 +77,7 @@ wire [19:0] i20;
 wire [15:0] i16;
 wire [25:0] i26;
 
-wire [63:0] op_31_26_d;    //Ö¸ÁîÂë²»Í¬¶Î
+wire [63:0] op_31_26_d;    //Ö¸ï¿½ï¿½ï¿½ë²»Í¬ï¿½ï¿½
 wire [15:0] op_25_22_d;
 wire [ 3:0] op_21_20_d;
 wire [31:0] op_19_15_d;
@@ -70,7 +85,7 @@ wire [31:0] op_14_10_d;
 wire [31:0] op_9_5_d; 
 wire [31:0] op_4_0_d;
 
-wire        inst_add_w;    //Ö¸ÁîÂëÅÐ¶Ï
+wire        inst_add_w;    //Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶ï¿½
 wire        inst_sub_w;
 wire        inst_slt;
 wire        inst_slti;
@@ -106,13 +121,13 @@ wire        inst_div_w;
 wire        inst_div_wu;
 wire        inst_mod_w;
 wire        inst_mod_wu;
-//Ìí¼Ó×ªÒÆÖ¸Áî£ºblt, bge, bltu, bgeu
+//ï¿½ï¿½ï¿½ï¿½×ªï¿½ï¿½Ö¸ï¿½î£ºblt, bge, bltu, bgeu
 wire        inst_blt;
 wire        inst_bge;
 wire        inst_bltu;
 wire        inst_bgeu;
 wire        br_wait;
-//Ìí¼Ó·Ã´æÖ¸Áî£ºld.b, ld.h, ld.bu, ld.hu
+//ï¿½ï¿½ï¿½Ó·Ã´ï¿½Ö¸ï¿½î£ºld.b, ld.h, ld.bu, ld.hu
 wire        inst_ld_b;
 wire        inst_ld_h;
 wire        inst_ld_bu;
@@ -182,7 +197,13 @@ wire ADEF;
 wire ALE;
 wire INE;
 wire ertn_block;
-
+//to_fs signals
+//used in  pre-IF stage
+wire to_if_valid;
+wire to_if_ready_go;
+wire pre_if_valid;
+wire pre_if_ready_go;
+reg [31:0] pre_if_pc;
 //IFreg
 wire if_to_id_valid;
 wire if_ready_go;
@@ -204,6 +225,8 @@ reg [31:0] inst;
 reg id_adef_ex;
 
 //EXEreg
+reg exe_mem_we;
+wire exe_en;
 wire exe_ready_go;
 wire exe_allowin;
 wire exe_to_mem_valid;
@@ -219,7 +242,7 @@ reg [ 3:0] exe_data_sram_we;
 reg        exe_data_sram_en;
 reg [31:0] exe_data_sram_wdata;
 reg [ 3:0] exe_op;
-reg [ 1:0] exe_counter;//exe_counter[1]´ú±í½á¹ûÊÇ·ñÀ´×Ôcounter£¬exe_counter[0]±íÊ¾½á¹ûÔÚ¸ßÎ»»¹ÊÇµÍÎ»¡£
+reg [ 1:0] exe_counter;//exe_counter[1]ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½counterï¿½ï¿½exe_counter[0]ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½Ú¸ï¿½Î»ï¿½ï¿½ï¿½Çµï¿½Î»ï¿½ï¿½?
 reg        exe_dividend_valid;
 reg        exe_divisor_valid;
 reg        exe_dividendu_valid;
@@ -285,6 +308,7 @@ reg        mem_int_ex;
 
 wire       mem_ex;
 
+reg       mem_is_ldst;
 //WBreg
 wire wb_ready_go;
 wire wb_allowin;
@@ -331,6 +355,7 @@ wire [4:0] wb_target;
 
 wire exe_eq_target;
 wire mem_eq_target;
+wire fwd_mem;
 wire wb_eq_target;
 
 //CSR RAW
@@ -365,6 +390,39 @@ wire  [31:0] csr_mask;
 wire  [14:0] csr_num;
 wire  [31:0] csr_wvalue;
 wire  [31:0] ertn_pc;
+//
+reg          reg_exe_addr_ok;
+wire         pre_if_addr_ok;
+reg          reg_pre_if_addr_ok;
+reg          if_addr_ok;
+reg          id_inst_sram_addr_ok;
+//inst_buffer
+reg  [31:0] if_inst_buff;
+reg         if_inst_valid;
+wire [31:0] if_inst;
+//cancel
+wire pre_if_cancel;
+reg if_ex_ertn_cancel;
+wire if_to_pre_if_allowin;
+wire exc_cancel;
+//br control and int
+reg reg_ertn_flush, reg_wb_ex, reg_br_taken;
+reg [31:0] reg_ertn_pc, reg_ex_entry, reg_br_target;
+reg exe_reg_ertn_flush,exe_reg_wb_ex;
+reg mem_reg_ertn_flush,mem_reg_wb_ex;
+
+reg br_cancel;
+reg if_ex_or_ertn_bk;
+
+
+
+//wire is_ex_or_ertn;
+//assign is_ex_or_ertn = exe_ex && mem_ex && wb_ex && mem_ertn_flush && wb_ertn_flush;
+//reset
+reg reset;
+always @ (posedge clk)
+    reset <= ~resetn;
+
 
 //COUNTER
 always @(posedge clk) begin
@@ -374,24 +432,27 @@ always @(posedge clk) begin
     else begin
         counter <= counter + 1'b1;
     end
-    
 end
+
 
 always @(posedge clk) begin
     if(!resetn) begin
         if_valid <= 1'b0; 
     end
     else if(if_allowin)begin
-        if_valid <= validin;
+        if_valid <= to_if_valid;
     end
-    else if(br_taken_cancel || ertn_block)begin
+    else if(wb_ex || ertn_flush)begin
+        if_valid <= 1'b0;
+    end
+    else if(br_taken_cancel/* || ertn_block*/)begin
         if_valid <= 1'b0;
     end
     
     if (!resetn) begin
         if_pc <= 32'h1Bfffffc;
     end
-    else if(validin && if_allowin)  begin
+    else if(pre_if_ready_go && if_allowin)  begin//
         if_pc <= nextpc;
         if_adef_ex <= ADEF;
     end
@@ -404,7 +465,7 @@ always @(posedge clk) begin
     else if(wb_ex || ertn_flush)begin
         id_valid <= 1'b0;
     end
-    else if(br_taken_cancel || ertn_block)begin
+    else if(br_taken_cancel/* || ertn_block*/)begin
         id_valid <= 1'b0;
     end
     else if(id_allowin)begin
@@ -412,10 +473,11 @@ always @(posedge clk) begin
     end
     
 
-    if(if_to_id_valid && id_allowin)begin
-        inst <= inst_sram_rdata;
-        id_pc <= if_pc;
+    if(if_ready_go && id_allowin)begin
+        inst <= if_inst;//inst
+        id_pc <= if_pc;//pc
         id_adef_ex <= if_adef_ex;
+        //id_inst_sram_addr_ok <= inst_sram_addr_ok;
     end
 end
 
@@ -424,7 +486,7 @@ always @(posedge clk) begin
         exe_valid <= 1'b0;
         exe_op <=4'b0000;
     end
-    else if(wb_ex || ertn_flush)begin
+    else if((wb_ex || ertn_flush) && wb_valid)begin
         exe_valid <= 1'b0;
     end
     else if(exe_allowin)begin
@@ -442,6 +504,7 @@ always @(posedge clk) begin
         exe_data_sram_we <= {4{mem_we}};// & st_strb;
         exe_rkd_value <= rkd_value;
         //exe_data_sram_wdata <= st_data;
+        exe_mem_we <= mem_we;
         exe_res_from_mem <= res_from_mem;
         exe_op <= alu_op2 ;
         exe_divisor_valid <= alu_op2[0] && ~alu_op2[1] && ~alu_op2[2];
@@ -487,7 +550,7 @@ always @(posedge clk) begin
     if(!resetn) begin
         mem_valid <= 1'b0;
     end
-    else if(wb_ex || ertn_flush)begin
+    else if(wb_valid && (wb_ex || ertn_flush))begin
         mem_valid <= 1'b0;
     end
     else if(mem_allowin)begin
@@ -499,12 +562,16 @@ always @(posedge clk) begin
         mem_dest <= exe_dest;
         mem_res_from_mem <= exe_res_from_mem;
         mem_rf_we <= exe_rf_we;
-        mem_alu_result <= result;  //ÊÂÊµÉÏ¸ÃÃüÃûÒÑ¾­²»×¼È·£¬ÒòÎª»¹°üº¬ÁËÀ´×ÔcounterµÄ½á¹û£¬µ«ÎªÁË·½±ã£¬ÈÔÈ»ÑØÓÃ
+        mem_alu_result <= result;  //ï¿½ï¿½Êµï¿½Ï¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ñ¾ï¿½ï¿½ï¿½×¼È·ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½counterï¿½Ä½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½Ë·ï¿½ï¿½ã£¬ï¿½ï¿½È»ï¿½ï¿½ï¿½ï¿½?
         mem_inst_ld_b <= exe_inst_ld_b;
         mem_inst_ld_bu <= exe_inst_ld_bu;
         mem_inst_ld_h <= exe_inst_ld_h;
         mem_inst_ld_hu <= exe_inst_ld_hu;
         mem_inst_ld_w <= exe_inst_ld_w;
+
+        mem_is_ldst <= (!ld_cancel && exe_res_from_mem || !st_cancel && exe_mem_we);
+        mem_ld_cancel <= ld_cancel;
+        mem_st_cancel <= st_cancel;
 
         mem_csr_num <= exe_csr_num;
         mem_csr_we <= exe_csr_we;
@@ -558,58 +625,195 @@ always @(posedge clk) begin
         wb_adef_ex <= mem_adef_ex;
     end
 end
-
-
-assign ex_sig = wb_ex | mem_ex | exe_ex;                //¼ì²éexe¼°Ö®Ç°µÄÁ÷Ë®ÏßÖÐÊÇ·ñ´æÔÚÒì³£ 
-
-//ÅÅ¿ÕÁ÷Ë®ÏßÊ±£¬Ö±µ½Òì³£Ö¸Áîµ½´ïwb¼¶Ö®Ç°£¬ÆäÓàÖ¸ÁîÈÔÕÕ¾ÉÖ´ÐÐ£¬Ö®ºóÁ÷Ë®ÏßÇå¿Õ²ÉÈ¡°Ñ³ýIF¼¶Ö®ÍâµÄËùÓÐvalidÐÅºÅÖÃ0ÊµÏÖ
-//Òì³£Ê±£¬²»¶ÔÒì³£Ö®ºóµÄÁ÷Ë®ÏßÈÎºÎ½×¶Î½øÐÐ×èÈû, ÓÉÓÚÁ÷Ë®ÏßÇå¿ÕÊ±²¢Î´Ö±½ÓÇå¿ÕIF¼¶,ÇÒ²¢Î´Í£Ö¹È¡Ö¸¹ý³Ì£¬·ÀÖ¹´ËÊ±×èÈûÊ±Ôì³ÉÈ¡Ö¸´íÎó
-//¿ÉÄÜ¿ÉÒÔÐÞ¸Ä
-//ÓÉÓÚcsrÔÚwb½×¶ÎÀý»¯£¬´Ó¶ø½öÐè¿¼ÂÇCSRÐ´¼Ä´æÆ÷Ê±³öÏÖµÄÐ´ºó¶Á¿ØÖÆÏà¹Ø
-//CSRÐ´ºó¶ÁÏà¹ØÅÐ¶Ï£¬ÓÉÓÚÊµÏÖÓÚwb¼¶£¬ÎÞ·¨½øÐÐÇ°µÝ£¬»òÖ»ÄÜÔÚWB¼¶Ç°µÝ£¬´Ó¶øÎ´ÊµÏÖÇ°µÝ¹¦ÄÜ
-assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
-assign csr_mem_eq_target = mem_eq_target & mem_eq_target & ~ex_sig;
-assign csr_wb_eq_target = wb_eq_target & wb_inst_csr & ~ex_sig;
-assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;            
-assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig;
-
-assign br_taken_cancel = id_ready_go && id_valid && br_taken  ;
-
-assign validin =1'b1;
-assign if_ready_go = 1'b1;
+//control
+reg mem_st_cancel;
+reg mem_ld_cancel;
+//pre_if_control
+assign pre_if_valid = resetn;
+assign to_if_valid = (pre_if_valid && pre_if_ready_go);
+assign pre_if_ready_go = (inst_sram_addr_ok && inst_sram_req);
+//if_control
+assign if_ready_go = ((inst_sram_data_ok) || if_inst_valid) && !br_cancel && !if_ex_ertn_cancel;
 assign if_allowin = !if_valid || if_ready_go && id_allowin;
 assign if_to_id_valid = if_valid && if_ready_go;
-
-assign id_ready_go = (!(block_ld_eq_target && id_valid || csr_eq_target && id_valid )) || ertn_flush;                
-assign id_allowin = !id_valid || id_ready_go && exe_allowin;
+//id_control
+assign id_ready_go = (!(block_ld_eq_target && id_valid || csr_eq_target && id_valid));                
+assign id_allowin = (!id_valid || id_ready_go && exe_allowin);
 assign id_to_exe_valid = id_valid & id_ready_go;
-
-assign exe_ready_go = (exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //Òì³£Ê±²»¶ÔÁ÷Ë®ÏßÈÎºÎ½×¶Î½øÐÐ×èÈû
+//exe_control
+assign exe_ready_go = (!exe_data_sram_en) ?
+                     ((exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //ï¿½ì³£Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ÎºÎ½×¶Î½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
                       (exe_op[0]& !exe_op[1] & !exe_op[2] & ~ex_sig)? dou_valid :
-                                                            1'b1  ;
+                       1'b1) : data_sram_req ? data_sram_addr_ok : 1'b1;
+                
 assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
-assign exe_to_mem_valid = exe_valid && exe_ready_go;
-
-assign mem_ready_go = 1'b1;
+assign exe_to_mem_valid = exe_valid && exe_ready_go;// && !exc_cancel;
+//mem_control
+assign mem_ready_go = (mem_is_ldst) ? data_sram_data_ok: 1'b1;
 assign mem_allowin = !mem_valid || mem_ready_go && wb_allowin;
 assign mem_to_wb_valid = mem_valid && mem_ready_go;
-
+//wb_control
 assign wb_ready_go = 1'b1;
 assign allowout = 1'b1;
 assign wb_allowin = !wb_valid || wb_ready_go && allowout;
 assign wb_validout = wb_valid && wb_ready_go;
 
-//nextPC
-assign seq_pc   = if_pc + 3'h4;                 
-assign nextpc   = ertn_flush      ? ertn_pc:                            //nextPCÑ¡ÔñÆ÷£¬ÓÅÏÈ¼¶²»È·¶¨ÊÇ·ñÕýÈ·£¬µ«ÄÜPASS
-                  wb_ex           ? ex_entry :
-                  br_taken_cancel ? br_target : 
-                  seq_pc;   //Èç¹ûbr_takenÎª1£¬Ìø×ªµ½Ä¿±êpc£¬·ñÔò+4
 
-assign inst_sram_en    = (resetn && id_ready_go && exe_ready_go)||ertn_flush;
+//inst_sram
+//assign inst_sram_en    = (resetn && id_ready_go && exe_ready_go) || ertn_flush;
+assign inst_sram_req   = resetn && if_allowin && !br_stall;
 assign inst_sram_we    = 4'b0;
 assign inst_sram_addr  = nextpc;
 assign inst_sram_wdata = 32'b0;
+assign inst_sram_wr    = 1'b0;//no write
+assign inst_sram_size  = 2'b10;//always 4 bytes
+assign inst_sram_wstrb = 4'b0;//no write 
+//exe_rf_we
+//data_SRAM
+assign exe_en          = (~exe_ex & ~mem_ex & ~ex_sig) && exe_valid;
+assign data_sram_en    = exe_en && exe_data_sram_en;//exe_data_sram_en && exe_valid;
+//assign data_sram_we    = exe_data_sram_we & {4{exe_valid}} & st_strb;//exe_data_sram_we;
+assign data_sram_addr  = alu_result;
+assign data_sram_wdata = st_data;// from rkd_value
+assign data_sram_wstrb = exe_data_sram_we & st_strb;// & {4{exe_valid}}
+assign data_sram_wr    = exe_mem_we && !st_cancel;// && !ld_cancel;//data_sram_en && exe_valid;//?
+
+assign data_sram_req   = resetn && data_sram_en && mem_allowin && !ld_cancel && !st_cancel;//å¼‚å¸¸æ—¶æ— æ³•å‘å‡ºè¯·æ±‚
+assign data_sram_size  = exe_inst_st_b || exe_inst_ld_bu || exe_inst_ld_b? 2'b00 ://use es
+                         exe_inst_st_h || exe_inst_ld_hu || exe_inst_ld_h? 2'b01 : 2'b10;
+
+assign ex_sig = wb_ex | mem_ex | exe_ex;                //ï¿½ï¿½ï¿½exeï¿½ï¿½Ö®Ç°ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½? 
+
+//ï¿½Å¿ï¿½ï¿½ï¿½Ë®ï¿½ï¿½Ê±ï¿½ï¿½Ö±ï¿½ï¿½ï¿½ì³£Ö¸ï¿½îµ½ï¿½ï¿½wbï¿½ï¿½Ö®Ç°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö¸ï¿½ï¿½ï¿½ï¿½ï¿½Õ¾ï¿½Ö´ï¿½Ð£ï¿½Ö®ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½Õ²ï¿½È¡ï¿½Ñ³ï¿½IFï¿½ï¿½Ö®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½validï¿½Åºï¿½ï¿½ï¿½0Êµï¿½ï¿½
+//ï¿½ì³£Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ì³£Ö®ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ÎºÎ½×¶Î½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½Î´Ö±ï¿½ï¿½ï¿½ï¿½ï¿½IFï¿½ï¿½,ï¿½Ò²ï¿½Î´Í£Ö¹È¡Ö¸ï¿½ï¿½ï¿½Ì£ï¿½ï¿½ï¿½Ö¹ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½È¡Ö¸ï¿½ï¿½ï¿½ï¿½?
+//ï¿½ï¿½ï¿½Ü¿ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½
+//ï¿½ï¿½ï¿½ï¿½csrï¿½ï¿½wbï¿½×¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó¶ï¿½ï¿½ï¿½ï¿½è¿¼ï¿½ï¿½CSRÐ´ï¿½Ä´ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½Öµï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+//CSRÐ´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð¶Ï£ï¿½ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½ï¿½ï¿½wbï¿½ï¿½ï¿½ï¿½ï¿½Þ·ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½Ý£ï¿½ï¿½ï¿½Ö»ï¿½ï¿½ï¿½ï¿½WBï¿½ï¿½Ç°ï¿½Ý£ï¿½ï¿½Ó¶ï¿½Î´Êµï¿½ï¿½Ç°ï¿½Ý¹ï¿½ï¿½ï¿½
+
+//pre-IF
+assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
+assign csr_mem_eq_target = mem_eq_target & mem_inst_csr & ~ex_sig;
+assign csr_wb_eq_target  =  wb_eq_target &  wb_inst_csr & ~ex_sig;
+assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;            
+assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig;
+
+assign br_taken_cancel = id_ready_go && id_valid && br_taken;
+//assign br_taken2 = br_taken_cancel && !br_stall;
+//branch control
+always @(posedge clk) begin
+    if(!resetn) begin
+        reg_br_taken <= 1'b0;
+        reg_br_target <= 32'b0;
+    end else if (pre_if_ready_go && if_allowin)begin
+        reg_br_taken <= 1'b0;
+        reg_br_target <= 32'b0;
+    end else if (br_taken && !br_stall) begin
+        reg_br_taken <= 1'b1;
+        reg_br_target <= br_target;
+    end
+end
+//int and exc.
+always @(posedge clk) begin
+    if(!resetn) begin
+        reg_wb_ex <= 1'b0;
+        reg_ertn_flush <= 1'b0;
+        reg_ex_entry <= 32'b0;
+        reg_ertn_pc <= 32'b0;
+    end else if (pre_if_ready_go && if_allowin)begin
+        reg_wb_ex <= 1'b0;
+        reg_ertn_flush <= 1'b0;
+        reg_ex_entry <= 32'b0;
+        reg_ertn_pc <= 32'b0;
+    end else if (wb_ex || ertn_flush) begin
+        if (wb_ex) begin
+            reg_wb_ex <= 1'b1;
+            reg_ex_entry <= ex_entry;
+        end
+        if (ertn_flush) begin
+            reg_ertn_flush <= 1'b1;
+            reg_ertn_pc <= ertn_pc;
+        end
+    end
+end
+
+always @ (posedge clk) begin
+    if(!resetn) begin
+        reg_pre_if_addr_ok <= 1'b0;
+    end else if (if_allowin || wb_ex || ertn_flush) begin
+        reg_pre_if_addr_ok <= 1'b0;
+    end else if (inst_sram_req && inst_sram_addr_ok && !if_allowin) begin
+        reg_pre_if_addr_ok <= 1'b1;
+    end 
+end
+
+//nextPC
+assign seq_pc   = if_pc + 3'h4;                 
+assign nextpc   = ertn_flush      ? ertn_pc      :                            //nextPCÑ¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½È¼ï¿½ï¿½ï¿½È·ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½È·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½PASS
+                  reg_ertn_flush  ? reg_ertn_pc  ://added
+                  wb_ex           ? ex_entry     :
+                  reg_wb_ex       ? reg_ex_entry ://added
+                  reg_br_taken    ? reg_br_target://added
+                  br_taken        ? br_target    : 
+                  seq_pc;   
+                  
+//ld or st cancel 
+//used in exe_stage.
+wire ld_cancel;
+wire st_cancel;
+assign ld_cancel = mem_valid && (mem_ex || mem_ertn_flush) ||
+                   wb_valid  && (wb_ex  || wb_ertn_flush ) ||
+                   (exe_inst_ld_h || exe_inst_ld_hu || exe_inst_ld_w) && ALE;
+assign st_cancel = mem_valid && (mem_ex || mem_ertn_flush) || 
+                   wb_valid  && (wb_ex  || wb_ertn_flush ) ||
+                   (exe_inst_st_h || exe_inst_st_w) && ALE;
+
+
+//IF_stage
+//IF:when ready_go = 1 and allowin = 0,
+//inst cannot go into ID_stage.
+//signal "inst" is id_inst //
+//when id_allowin gets to 1, buffer should be empty
+//its previous value should be pass to inst
+//also, when wb_ex or ertn_flush is 1'b1, cancel.
+//debugging
+wire debug_fs_cancel_res;
+assign debug_fs_cancel_res = inst_sram_data_ok && !id_allowin && !if_inst_valid && !if_ex_ertn_cancel && !br_cancel;
+always @ (posedge clk) begin
+    if(!resetn) begin
+        if_inst_buff <= 32'b0;
+        if_inst_valid <= 1'b0;
+    end else if (id_allowin || wb_ex || ertn_flush) begin
+        if_inst_buff <= 32'b0;
+        if_inst_valid <= 1'b0;
+    end else if(debug_fs_cancel_res) begin
+        if_inst_buff <= inst_sram_rdata;
+        if_inst_valid <= 1'b1;
+    end 
+end
+assign if_inst = if_inst_valid ? if_inst_buff : inst_sram_rdata;//inst selection
+//the inst should be canceled if :
+always @ (posedge clk) begin
+    if(!resetn) begin
+        if_ex_ertn_cancel <= 1'b0;
+    end else if((if_valid && !if_ready_go /*|| to_if_valid*/) && (wb_ex || ertn_flush)) begin
+        if_ex_ertn_cancel <= 1'b1;
+    end else if(inst_sram_data_ok) begin
+        if_ex_ertn_cancel <= 1'b0;
+    end
+end
+always @ (posedge clk) begin
+    if(!resetn) begin
+        br_cancel <= 1'b0;
+    end else if(!if_allowin && !if_ready_go && (br_taken && !br_stall)) begin
+        br_cancel <= 1'b1;
+    end else if(inst_sram_data_ok) begin
+        br_cancel <= 1'b0;
+    end
+    
+end
+
+
+//ID_stage
 
 assign op_31_26  = inst[31:26];
 assign op_25_22  = inst[25:22];
@@ -629,7 +833,7 @@ decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
 decoder_2_4  u_dec2(.in(op_21_20 ), .out(op_21_20_d ));
 decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
-decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //Ôö¼ÓÁËÕë¶Ôºó15Î»ÊýµÄÒëÂëÆ÷
+decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ôºï¿½?15Î»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 decoder_5_32 u_dec5(.in(rj),.out(op_9_5_d));
 decoder_5_32 u_dec6(.in(rd),.out(op_4_0_d));
 
@@ -669,7 +873,7 @@ assign inst_beq    = op_31_26_d[6'h16];
 assign inst_bne    = op_31_26_d[6'h17];
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
 assign inst_pcaddu12i=op_31_26_d[6'h07] & ~inst[25];
-//ÒëÂë£ºÌí¼ÓµÄ×ªÒÆÖ¸Áî
+//ï¿½ï¿½ï¿½ë£ºï¿½ï¿½ï¿½Óµï¿½×ªï¿½ï¿½Ö¸ï¿½ï¿½
 assign inst_blt    = op_31_26_d[6'h18];
 assign inst_bge    = op_31_26_d[6'h19];
 assign inst_bltu   = op_31_26_d[6'h1a];
@@ -697,7 +901,7 @@ assign inst_break = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op
 assign inst_ertn = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0]
                     & op_19_15_d[5'h10] & op_14_10_d[5'h0e] & op_9_5_d[5'h0]
                     & op_4_0_d [5'h0];
-//£ºrdcntvl.w,rdcntvh.w ºÍ rdcntid
+//ï¿½ï¿½rdcntvl.w,rdcntvh.w ï¿½ï¿½ rdcntid
 assign inst_rdcntvl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_9_5_d[5'h0];
 assign inst_rdcntvh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h19] & op_9_5_d[5'h0]; 
 assign inst_rdcntid_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_4_0_d[5'h0];
@@ -710,14 +914,14 @@ assign INE=~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_an
             | inst_st_w | inst_st_h | inst_st_b | inst_csrrd | inst_csrwd  | inst_csrxchg | inst_syscall | inst_break |
             inst_ertn | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w);
              
-assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_en) ;
+assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_req) ;
 assign ALE  = (exe_inst_ld_h | exe_inst_ld_hu | exe_inst_st_h) & alu_result[0] ||(exe_inst_ld_w | exe_inst_st_w) &(alu_result[1:0]!=2'b00)  ;
 
 assign ertn_block = (!exe_ready_go)?1'b0:
                      wb_ertn_flush? 1'b0 :(exe_ertn_flush | mem_ertn_flush |inst_ertn);
 
 
-assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg | inst_rdcntid_w;               //ÒëÂë½×¶ÎµÃµ½CSRÏà¹ØÐÅÏ¢
+assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg | inst_rdcntid_w;               //ï¿½ï¿½ï¿½ï¿½×¶ÎµÃµï¿½CSRï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?
 assign csr_we = inst_csrwd | inst_csrxchg;
 assign csr_num = inst_rdcntid_w? 14'h0040:inst[23:10];
 assign csr_mask = inst_csrxchg ? rj_value : 32'hffffffff;
@@ -740,15 +944,15 @@ assign alu_op[ 9] = inst_srli_w | inst_srl_w;
 assign alu_op[10] = inst_srai_w | inst_sra_w;
 assign alu_op[11] = inst_lu12i_w;
 assign alu_op2[0] = inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu;
-assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //½á¹ûÊÇ·ñÎª³Ë·¨Æ÷Êä³ö
-assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //ÊÇ·ñÎªÎÞ·ûºÅÊý
-assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //½á¹ûÊÇ·ñÎ»ÓÚ¸ßÎ»
+assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //ï¿½ï¿½ï¿½ï¿½Ç·ï¿½Îªï¿½Ë·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //ï¿½Ç·ï¿½Îªï¿½Þ·ï¿½ï¿½ï¿½ï¿½ï¿½
+assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //ï¿½ï¿½ï¿½ï¿½Ç·ï¿½Î»ï¿½Ú¸ï¿½ï¿½?
 
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_ui12  =  inst_andi | inst_ori | inst_xori;
 
-assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui | inst_st_h | inst_st_b;//Ìí¼ÓÁËexp11ÖÐÌí¼ÓµÄ·Ã´æÖ¸Áî
-assign need_si16  =  inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;//Ìí¼ÓÁËexp11ÖÐÌí¼ÓµÄ4Ìõ×ªÒÆÖ¸Áî: bge, blt, bgeu, bltu
+assign need_si12  =  inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui | inst_st_h | inst_st_b;
+assign need_si16  =  inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
 assign need_si20  =  inst_lu12i_w | inst_pcaddu12i;
 assign need_si26  =  inst_b | inst_bl;
 assign src2_is_4  =  inst_jirl | inst_bl;
@@ -772,7 +976,7 @@ assign wb_target ={5{wb_rf_we}} & wb_dest;
 assign exe_eq_target = (!exe_valid)? 1'b0:                          
                       (exe_target==5'b00000)? 1'b0:                                                             
                       (rj_read_need & (rj==exe_target))| (rk_read_need & (rk==exe_target))| (rd_read_need & (rd==exe_target)) ;
-
+           
 assign mem_eq_target = (!mem_valid)? 1'b0:                                 
                       (mem_target==5'b00000)? 1'b0:                       
                       (rj_read_need & (rj==mem_target)) | (rk_read_need & (rk==mem_target)) | (rd_read_need & (rd==mem_target)) ;                                                       
@@ -821,6 +1025,7 @@ assign src2_is_imm   = inst_slli_w |
 assign res_from_mem  = inst_ld_w | inst_ld_b |inst_ld_h | inst_ld_bu |inst_ld_hu;
 assign res_from_counter = inst_rdcntvl_w | inst_rdcntvh_w;
 assign dst_is_r1     = inst_bl;
+assign br_stall      = !id_ready_go & (inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_b | inst_bl);// | inst_jirl);
 
 assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_st_h & ~inst_st_b;
 assign mem_we        = inst_st_w | inst_st_h | inst_st_b;
@@ -840,14 +1045,16 @@ regfile u_regfile(
     .wdata  (rf_wdata )
     );
 
-assign rj_value  =(exe_eq_target && rj_read_need && ~exe_res_from_mem && (rj==exe_target))? result :
-                  (mem_eq_target && rj_read_need && (rj==mem_target))? final_result  :
-                  (wb_eq_target && rj_read_need && (rj==wb_target))? wb_final_result :rf_rdata1;
-assign rkd_value =(exe_eq_target && ~exe_res_from_mem && ((rk_read_need && (rk==exe_target)) || (rd_read_need && (rd==exe_target))))? result :
-                  (mem_eq_target && ((rk_read_need && (rk==mem_target)) || (rd_read_need && (rd==mem_target))))? final_result  :
-                  (wb_eq_target && ((rk_read_need && (rk==wb_target)) || (rd_read_need && (rd==wb_target))))? wb_final_result :rf_rdata2;
-//Ìø×ªÌõ¼þÅÐ¶Ï
-assign rj_eq_rd = (rj_value == rkd_value);
+assign rj_value  =(exe_eq_target && rj_read_need && ~exe_res_from_mem && (rj==exe_target))? result          :
+                  (mem_eq_target && rj_read_need &&                      (rj==mem_target))? final_result    :
+                  (wb_eq_target && rj_read_need  &&                      (rj==wb_target) )? wb_final_result :
+                                                                                            rf_rdata1;
+assign rkd_value =(exe_eq_target && ((rk_read_need && (rk==exe_target)) || (rd_read_need && (rd==exe_target)) && ~exe_res_from_mem ))? result          :
+                  (mem_eq_target && ((rk_read_need && (rk==mem_target)) || (rd_read_need && (rd==mem_target))                      ))? final_result    :
+                  (wb_eq_target  && ((rk_read_need && (rk==wb_target )) || (rd_read_need && (rd==wb_target ))                      ))? wb_final_result :
+                                                                                                                                       rf_rdata2;
+//compare
+assign rj_eq_rd   = (rj_value == rkd_value);
 assign rj_lt_rd_u = (rj_value < rkd_value);
 assign rj_ge_rd_u = !rj_lt_rd_u;
 assign rj_lt_rd = 
@@ -855,16 +1062,15 @@ assign rj_lt_rd =
     (rj_value[31] & !rkd_value[31]) |
     (rj_value[31] & rkd_value[31]) & (rj_value[30:0] < rkd_value[30:0]);
 assign rj_ge_rd = !rj_lt_rd;
-assign br_taken =  inst_beq  &&  rj_eq_rd
+assign br_taken =  (inst_beq  &&  rj_eq_rd
                    || inst_bne  && !rj_eq_rd
-                   /*Ìí¼ÓÌø×ªÌõ¼þÅÐ¶Ï*/
                    || inst_bltu && rj_lt_rd_u
                    || inst_bgeu && rj_ge_rd_u
                    || inst_blt && rj_lt_rd
                    || inst_bge && rj_ge_rd
                    || inst_jirl
                    || inst_bl
-                   || inst_b;            
+                   || inst_b) && id_valid;            
 
 assign br_target = (inst_beq || inst_bne || inst_bl || inst_b || inst_bge || inst_bgeu || inst_blt || inst_bltu) ? (id_pc + br_offs) :
                                                    /*inst_jirl*/ (rj_value + jirl_offs);
@@ -879,10 +1085,37 @@ assign divisor_valid = exe_divisor_valid;
 assign dividend_valid = exe_dividend_valid;
 assign divisoru_valid = exe_divisoru_valid;
 assign dividendu_valid = exe_dividendu_valid;
+//EXE_stage
+always @(posedge clk) begin
+    if(!resetn) begin
+        reg_exe_addr_ok <= 1'b0;
+    end else if (data_sram_addr_ok && data_sram_req && !mem_allowin) begin
+        reg_exe_addr_ok <= 1'b1;
+    end else if (mem_allowin) begin
+        reg_exe_addr_ok <= 1'b0;
+    end
+end
 
-div_1 div (                                   //ÃüÃûÊ±³ö´í²Å¸ü¸ÄÃû×Ö£¬¿ÉºöÂÔ
+always @(posedge clk) begin
+    if(!resetn) begin
+        exe_reg_wb_ex <= 1'b0;
+        exe_reg_ertn_flush <= 1'b0;
+    end else if (id_to_exe_valid && exe_allowin)begin
+        exe_reg_wb_ex <= 1'b0;
+        exe_reg_ertn_flush <= 1'b0;
+    end else if (wb_ex || ertn_flush) begin
+        if (wb_ex) begin
+            exe_reg_wb_ex <= 1'b1;
+        end
+        if (ertn_flush) begin
+            exe_reg_ertn_flush <= 1'b1;
+        end
+    end
+end
+assign exc_cancel = wb_ex || ertn_flush || exe_reg_wb_ex || exe_reg_ertn_flush;
+div div (                                   //ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½ï¿½ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö£ï¿½ï¿½Éºï¿½ï¿½ï¿½
   .aclk(clk),                               // input wire aclk
-  .aresetn(~ex_sig),                        //reset,µ±exe¼¶¼°Ö®ºóµÄÁ÷Ë®¼¶³öÏÖÒì³£Ê±ÖÃ0             
+  .aresetn(~ex_sig),                        //reset,ï¿½ï¿½exeï¿½ï¿½ï¿½ï¿½Ö®ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ì³£Ê±ï¿½ï¿½?0             
   .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -895,7 +1128,7 @@ div_1 div (                                   //ÃüÃûÊ±³ö´í²Å¸ü¸ÄÃû×Ö£¬¿ÉºöÂÔ
 
 div_gen_0 divu (
   .aclk(clk),                                  // input wire aclk
-  .aresetn(~ex_sig),                            //reset,µ±exe¼¶¼°Ö®ºóµÄÁ÷Ë®¼¶³öÏÖÒì³£Ê±ÖÃ0          
+  .aresetn(~ex_sig),                            //reset,ï¿½ï¿½exeï¿½ï¿½ï¿½ï¿½Ö®ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ì³£Ê±ï¿½ï¿½?0          
   .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -928,11 +1161,6 @@ assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
                  exe_inst_st_h ? {2{exe_rkd_value[15:0]}} :
                                     exe_rkd_value;
 
-//SRAM
-assign data_sram_en    = ~exe_ex & ~mem_ex & ~ex_sig;//exe_data_sram_en && exe_valid;        //·¢ÉúÒì³£Ê±£¬²»Ð´ÄÚ´æ
-assign data_sram_we    = exe_data_sram_we & {4{exe_valid}} & st_strb;//exe_data_sram_we;
-assign data_sram_addr  = alu_result;
-assign data_sram_wdata = st_data;// from rkd_value
 
 //assign data_sram_wdata = st_data;
 assign st_b_strb = 4'b0001 << (alu_result[1:0]);
@@ -944,7 +1172,7 @@ assign st_strb =
     ({4{exe_inst_st_w}} & st_w_strb);
 //load
 //assign mem_result   = data_sram_rdata; //need to be changed
-assign final_result = mem_res_from_mem ? mem_result : mem_alu_result;                
+assign final_result = mem_res_from_mem && !mem_ld_cancel ? mem_result : mem_alu_result;                
 assign load_word = data_sram_rdata;
 
 assign last     =  mem_alu_result[1:0];
@@ -969,18 +1197,34 @@ assign mem_result =
     ({32{mem_inst_ld_b | mem_inst_ld_bu}} & extended_byte) |
     ({32{mem_inst_ld_h | mem_inst_ld_hu}} & extended_half); 
 
-
-wire csr_wen = wb_valid & wb_csr_we;            //ÓëÉÏvalid·ÀÖ¹ÔÚÇå¿ÕÁ÷Ë®ÏßÊ±¶Ô×´Ì¬¼Ä´æÆ÷×ö³ö´íÎóµÄÐÞ¸Ä
+always @(posedge clk) begin
+    if(!resetn) begin
+        mem_reg_wb_ex <= 1'b0;
+        mem_reg_ertn_flush <= 1'b0;
+    end else if (id_to_exe_valid && exe_allowin)begin
+        mem_reg_wb_ex <= 1'b0;
+        mem_reg_ertn_flush <= 1'b0;
+    end else if (wb_ex || ertn_flush) begin
+        if (wb_ex) begin
+            mem_reg_wb_ex <= 1'b1;
+        end
+        if (ertn_flush) begin
+            mem_reg_ertn_flush <= 1'b1;
+        end
+    end
+end
+assign mem_ex_ertn_cancel = wb_ex || ertn_flush || mem_reg_wb_ex || mem_reg_ertn_flush;
+wire mem_ex_ertn_cancel;
+wire csr_wen = wb_valid & wb_csr_we;            //ï¿½ï¿½ï¿½ï¿½validï¿½ï¿½Ö¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ë®ï¿½ï¿½Ê±ï¿½ï¿½×´Ì¬ï¿½Ä´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½
 assign ertn_flush = wb_valid & wb_ertn_flush;   
 assign csr_wr_en = wb_valid & wb_inst_csr;
 assign exe_ex = exe_valid & (exe_sys_ex | exe_brk_ex | exe_int_ex | exe_ine_ex | exe_adef_ex | ALE);      
 assign mem_ex = mem_valid & (mem_sys_ex | mem_brk_ex | mem_int_ex | mem_ine_ex | mem_adef_ex | mem_ale_ex);      
 assign wb_ex = wb_valid & (wb_sys_ex | wb_brk_ex | wb_ine_ex | wb_int_ex | wb_adef_ex | wb_ale_ex);    
 
-assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //·ÀÖ¹wb½×¶Î²úÉúÐ´¼Ä´æÆ÷²Ù×÷£¬¿ÉÄÜ¿ÉÒÔÐÞ¸Ä
+assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //ï¿½ï¿½Ö¹wbï¿½×¶Î²ï¿½ï¿½ï¿½Ð´ï¿½Ä´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü¿ï¿½ï¿½ï¿½ï¿½Þ¸ï¿½
 assign rf_waddr = wb_dest;
-assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         //Ð´¼Ä´æÆ÷Êý¾Ý
-
+assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         
 //Ecode Esubcode
 assign wb_ecode = wb_int_ex? 6'h00:
                   wb_adef_ex? 6'h08:
@@ -992,22 +1236,22 @@ assign wb_ecode = wb_int_ex? 6'h00:
 assign wb_esubcode = 9'b0;                  //exp13 has no esubcode
 
 csr csr1(.clk(clk),
-        .reset(~resetn),                    //resetÐÅºÅ
-        .csr_re(1'b1),                      //Ã»ÓÃ£¬¿ÉÒÔÉ¾ÁË
-        .csr_num(wb_csr_num),               //×´Ì¬¼Ä´æÆ÷±àºÅ
-        .csr_we(csr_wen),                   //×´Ì¬¼Ä´æÆ÷Ð´Ê¹ÄÜ
-        .csr_wmask(wb_csr_wmask),           //ÑÚÂë
-        .csr_wvalue(wb_csr_wvalue),         //Ð´Êý¾Ý
-        .wb_ex(wb_ex),                      //Òì³£ÐÅºÅ
-        .ertn_flush(ertn_flush),            //ertnÀýÍâ·µ»ØÐÅºÅ
-        .wb_ecode(wb_ecode),                //Òì³£ÀàÐÍÐÅºÅ£¬ÔÚwb½×¶Î±àÂëµÃµ½
-        .wb_esubcode(wb_esubcode),          //Í¬ÉÏ
-        .wb_pc(wb_pc),                      //Òì³£PC
-        .wb_vaddr(wb_vaddr),                //µØÖ·Òì³£Ê±µÄµØÖ·
-        .csr_rvalue(csr_rvalue),            //¶ÁÊý¾Ý
-        .ex_entry(ex_entry),                //ÀýÍâPCÈë¿Ú
-        .ertn_pc(ertn_pc),                  //ÀýÍâ½áÊø·µ»ØPC
-        .has_int(has_int)                   //ÖÐ¶Ï´æÔÚ£¬exp12Î´Ê¹ÓÃ
+        .reset(~resetn),                    //resetï¿½Åºï¿½
+        .csr_re(1'b1),                      //Ã»ï¿½Ã£ï¿½ï¿½ï¿½ï¿½ï¿½É¾ï¿½ï¿½
+        .csr_num(wb_csr_num),               //×´Ì¬ï¿½Ä´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½?
+        .csr_we(csr_wen),                   //×´Ì¬ï¿½Ä´ï¿½ï¿½ï¿½Ð´Ê¹ï¿½ï¿½
+        .csr_wmask(wb_csr_wmask),           //ï¿½ï¿½ï¿½ï¿½
+        .csr_wvalue(wb_csr_wvalue),         //Ð´ï¿½ï¿½ï¿½ï¿½
+        .wb_ex(wb_ex),                      //ï¿½ì³£ï¿½Åºï¿½
+        .ertn_flush(ertn_flush),            //ertnï¿½ï¿½ï¿½â·µï¿½ï¿½ï¿½Åºï¿½
+        .wb_ecode(wb_ecode),                //ï¿½ì³£ï¿½ï¿½ï¿½ï¿½ï¿½ÅºÅ£ï¿½ï¿½ï¿½wbï¿½×¶Î±ï¿½ï¿½ï¿½Ãµï¿½?
+        .wb_esubcode(wb_esubcode),          //Í¬ï¿½ï¿½
+        .wb_pc(wb_pc),                      //ï¿½ì³£PC
+        .wb_vaddr(wb_vaddr),                //ï¿½ï¿½Ö·ï¿½ì³£Ê±ï¿½Äµï¿½Ö·
+        .csr_rvalue(csr_rvalue),            //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+        .ex_entry(ex_entry),                //ï¿½ï¿½ï¿½ï¿½PCï¿½ï¿½ï¿½?
+        .ertn_pc(ertn_pc),                  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½PC
+        .has_int(has_int)                   //ï¿½Ð¶Ï´ï¿½ï¿½Ú£ï¿½exp12Î´Ê¹ï¿½ï¿½
 );
 
 // debug info generate
