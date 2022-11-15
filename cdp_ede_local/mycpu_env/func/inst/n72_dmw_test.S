@@ -1,6 +1,6 @@
-#include <asm.h>
-#include <regdef.h>
-#include <inst_test.h>
+#include "asm.h"
+#include "regdef.h"
+#include "inst_test.h"
 
 LEAF(n72_dmw_test)
     addi.w s0, s0 ,0x1
@@ -88,7 +88,7 @@ LEAF(n72_dmw_test)
     tlbwr  
 
     // config the TLB entry for ld
-    FILL_TLB_ITEM(0x0c000001, 0xe0000000, 0x900004d, 0x60000000)
+    FILL_TLB_ITEM(0x0c000001, 0xe0000000, 0x900004d, 0x0)
     csrwr    zero, csr_tlbehi
 
     //let DA=0 and PG=1 and prl=0
