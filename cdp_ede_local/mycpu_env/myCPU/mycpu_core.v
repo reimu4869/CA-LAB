@@ -1,3 +1,7 @@
+//注释中包含中文，如果乱码，则可能需要使用GB编码打开,如果显示正常可以无视
+//if the notes are wrong characters in Chinese，please turn 'UTF-8' to 'GB2312',
+//else ignore this message and please save the file correctly
+
 module mycpu_core(
     input  wire        clk,
     input  wire        resetn,
@@ -77,7 +81,7 @@ wire [19:0] i20;
 wire [15:0] i16;
 wire [25:0] i26;
 
-wire [63:0] op_31_26_d;    //????????
+wire [63:0] op_31_26_d;    
 wire [15:0] op_25_22_d;
 wire [ 3:0] op_21_20_d;
 wire [31:0] op_19_15_d;
@@ -85,7 +89,7 @@ wire [31:0] op_14_10_d;
 wire [31:0] op_9_5_d; 
 wire [31:0] op_4_0_d;
 
-wire        inst_add_w;    //??????��?
+wire        inst_add_w;    
 wire        inst_sub_w;
 wire        inst_slt;
 wire        inst_slti;
@@ -121,13 +125,13 @@ wire        inst_div_w;
 wire        inst_div_wu;
 wire        inst_mod_w;
 wire        inst_mod_wu;
-//??????????blt, bge, bltu, bgeu
+//blt, bge, bltu, bgeu
 wire        inst_blt;
 wire        inst_bge;
 wire        inst_bltu;
 wire        inst_bgeu;
 wire        br_wait;
-//?????????ld.b, ld.h, ld.bu, ld.hu
+//ld.b, ld.h, ld.bu, ld.hu
 wire        inst_ld_b;
 wire        inst_ld_h;
 wire        inst_ld_bu;
@@ -242,7 +246,7 @@ reg [ 3:0] exe_data_sram_we;
 reg        exe_data_sram_en;
 reg [31:0] exe_data_sram_wdata;
 reg [ 3:0] exe_op;
-reg [ 1:0] exe_counter;//exe_counter[1]??????????????counter??exe_counter[0]?????????��?????��???
+reg [ 1:0] exe_counter;//exe_counter[1]
 reg        exe_dividend_valid;
 reg        exe_divisor_valid;
 reg        exe_dividendu_valid;
@@ -393,7 +397,6 @@ wire  [31:0] ertn_pc;
 //
 reg          reg_exe_addr_ok;
 wire         pre_if_addr_ok;
-reg          reg_pre_if_addr_ok;
 reg          if_addr_ok;
 reg          id_inst_sram_addr_ok;
 //inst_buffer
@@ -562,7 +565,7 @@ always @(posedge clk) begin
         mem_dest <= exe_dest;
         mem_res_from_mem <= exe_res_from_mem;
         mem_rf_we <= exe_rf_we;
-        mem_alu_result <= result;  //??????????????????????????????????counter??????????????????????
+        mem_alu_result <= result;  //counter
         mem_inst_ld_b <= exe_inst_ld_b;
         mem_inst_ld_bu <= exe_inst_ld_bu;
         mem_inst_ld_h <= exe_inst_ld_h;
@@ -626,10 +629,9 @@ always @(posedge clk) begin
     end
 end
 
+//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞
 wire mem_ld_waiting;
 assign mem_ld_waiting = mem_valid & mem_res_from_mem & ~data_sram_data_ok;
-
-
 
 //control
 reg mem_st_cancel;
@@ -648,12 +650,12 @@ assign id_allowin = (!id_valid || id_ready_go && exe_allowin);
 assign id_to_exe_valid = id_valid & id_ready_go;
 //exe_control
 assign exe_ready_go = (!exe_data_sram_en) ?
-                     ((exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   //?????????????�ʦ�?��???????
+                     ((exe_op[0]& !exe_op[1] & exe_op[2] & ~ex_sig)? douu_valid :                   
                       (exe_op[0]& !exe_op[1] & !exe_op[2] & ~ex_sig)? dou_valid :
                        1'b1) : data_sram_req ? data_sram_addr_ok : 1'b1;
                 
 assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
-assign exe_to_mem_valid = exe_valid && exe_ready_go;// && !exc_cancel;
+assign exe_to_mem_valid = exe_valid && exe_ready_go;
 //mem_control
 assign mem_ready_go = (mem_is_ldst) ? data_sram_data_ok: 1'b1;
 assign mem_allowin = !mem_valid || mem_ready_go && wb_allowin;
@@ -666,7 +668,6 @@ assign wb_validout = wb_valid && wb_ready_go;
 
 
 //inst_sram
-//assign inst_sram_en    = (resetn && id_ready_go && exe_ready_go) || ertn_flush;
 assign inst_sram_req   = resetn && if_allowin && !br_stall;
 assign inst_sram_we    = 4'b0;
 assign inst_sram_addr  = nextpc;
@@ -677,30 +678,26 @@ assign inst_sram_wstrb = 4'b0;//no write
 //exe_rf_we
 //data_SRAM
 assign exe_en          = (~exe_ex & ~mem_ex & ~ex_sig) && exe_valid;
-assign data_sram_en    = exe_en && exe_data_sram_en;//exe_data_sram_en && exe_valid;
-//assign data_sram_we    = exe_data_sram_we & {4{exe_valid}} & st_strb;//exe_data_sram_we;
+assign data_sram_en    = exe_en && exe_data_sram_en;
 assign data_sram_addr  = alu_result;
 assign data_sram_wdata = st_data;// from rkd_value
-assign data_sram_wstrb = exe_data_sram_we & st_strb;// & {4{exe_valid}}
-assign data_sram_wr    = exe_mem_we && !st_cancel;// && !ld_cancel;//data_sram_en && exe_valid;//?
+assign data_sram_wstrb = exe_data_sram_we & st_strb;
+assign data_sram_wr    = exe_mem_we && !st_cancel;
 
-assign data_sram_req   = resetn && data_sram_en && mem_allowin && !ld_cancel && !st_cancel;//�쳣ʱ�޷���������
+assign data_sram_req   = resetn && data_sram_en && mem_allowin && !ld_cancel && !st_cancel;
 assign data_sram_size  = exe_inst_st_b || exe_inst_ld_bu || exe_inst_ld_b? 2'b00 ://use es
                          exe_inst_st_h || exe_inst_ld_hu || exe_inst_ld_h? 2'b01 : 2'b10;
 
-assign ex_sig = wb_ex | mem_ex | exe_ex;                //???exe?????????????????????? 
+assign ex_sig = wb_ex | mem_ex | exe_ex;                 
 
-//?????????????????????wb????????????????????��?????????????????IF??????????valid?????0???
-//?????????????????????�ʦ�?��????????, ???????????????��??????IF??,???��??????????????????????????????
-//??????????
-//????csr??wb???????????????ޗ??CSR��???????????��??????????
-//CSR��???????��???????????wb??????????????????????WB?????????��?????????
 
 //pre-IF
 assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
 assign csr_mem_eq_target = mem_eq_target & mem_inst_csr & ~ex_sig;
 assign csr_wb_eq_target  =  wb_eq_target &  wb_inst_csr & ~ex_sig;
-assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;            
+assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;
+//exp15 changed
+//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞            
 assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig | mem_ld_waiting;
 
 assign br_taken_cancel = id_ready_go && id_valid && br_taken;
@@ -744,19 +741,9 @@ always @(posedge clk) begin
     
 end
 
-always @ (posedge clk) begin
-    if(!resetn) begin
-        reg_pre_if_addr_ok <= 1'b0;
-    end else if (if_allowin || wb_ex || ertn_flush) begin
-        reg_pre_if_addr_ok <= 1'b0;
-    end else if (inst_sram_req && inst_sram_addr_ok && !if_allowin) begin
-        reg_pre_if_addr_ok <= 1'b1;
-    end 
-end
-
 //nextPC
 assign seq_pc   = if_pc + 3'h4;                 
-assign nextpc   = ertn_flush      ? ertn_pc      :                            //nextPC?????????????????????????????PASS
+assign nextpc   = ertn_flush      ? ertn_pc      :                            
                   reg_ertn_flush  ? reg_ertn_pc  ://added
                   wb_ex           ? ex_entry     :
                   reg_wb_ex       ? reg_ex_entry ://added
@@ -785,6 +772,10 @@ assign st_cancel = mem_valid && (mem_ex || mem_ertn_flush) ||
 //also, when wb_ex or ertn_flush is 1'b1, cancel.
 //debugging
 
+//exp15 added
+//to judge the br_cancel first or the ex_ertn_cancelfirst
+//判断分支取消优先还是异常取消优先
+//主要针对分支取消时发生了时钟中断的情况
 reg br_cancel_first;
 reg ex_ertn_cancel_first;
 
@@ -798,9 +789,7 @@ always @ (posedge clk) begin
     else if(!br_cancel && br_cancel_first)begin
         br_cancel_first <= 1'b0;
     end
-end
 
-always @ (posedge clk) begin
     if(!resetn) begin
         ex_ertn_cancel_first <= 1'b0;
     end 
@@ -869,7 +858,7 @@ decoder_6_64 u_dec0(.in(op_31_26 ), .out(op_31_26_d ));
 decoder_4_16 u_dec1(.in(op_25_22 ), .out(op_25_22_d ));
 decoder_2_4  u_dec2(.in(op_21_20 ), .out(op_21_20_d ));
 decoder_5_32 u_dec3(.in(op_19_15 ), .out(op_19_15_d ));
-decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              //???????????15��??????????
+decoder_5_32 u_dec4(.in(rk),.out(op_14_10_d));                              
 decoder_5_32 u_dec5(.in(rj),.out(op_9_5_d));
 decoder_5_32 u_dec6(.in(rd),.out(op_4_0_d));
 
@@ -909,7 +898,7 @@ assign inst_beq    = op_31_26_d[6'h16];
 assign inst_bne    = op_31_26_d[6'h17];
 assign inst_lu12i_w= op_31_26_d[6'h05] & ~inst[25];
 assign inst_pcaddu12i=op_31_26_d[6'h07] & ~inst[25];
-//???????????????
+
 assign inst_blt    = op_31_26_d[6'h18];
 assign inst_bge    = op_31_26_d[6'h19];
 assign inst_bltu   = op_31_26_d[6'h1a];
@@ -937,7 +926,7 @@ assign inst_break = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op
 assign inst_ertn = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0]
                     & op_19_15_d[5'h10] & op_14_10_d[5'h0e] & op_9_5_d[5'h0]
                     & op_4_0_d [5'h0];
-//??rdcntvl.w,rdcntvh.w ?? rdcntid
+//rdcntvl.w,rdcntvh.w rdcntid
 assign inst_rdcntvl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_9_5_d[5'h0];
 assign inst_rdcntvh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h19] & op_9_5_d[5'h0]; 
 assign inst_rdcntid_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_4_0_d[5'h0];
@@ -957,7 +946,7 @@ assign ertn_block = (!exe_ready_go)?1'b0:
                      wb_ertn_flush? 1'b0 :(exe_ertn_flush | mem_ertn_flush |inst_ertn);
 
 
-assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg | inst_rdcntid_w;               //?????��??CSR???????
+assign inst_csr = inst_csrrd | inst_csrwd | inst_csrxchg | inst_rdcntid_w;               
 assign csr_we = inst_csrwd | inst_csrxchg;
 assign csr_num = inst_rdcntid_w? 14'h0040:inst[23:10];
 assign csr_mask = inst_csrxchg ? rj_value : 32'hffffffff;
@@ -980,9 +969,9 @@ assign alu_op[ 9] = inst_srli_w | inst_srl_w;
 assign alu_op[10] = inst_srai_w | inst_sra_w;
 assign alu_op[11] = inst_lu12i_w;
 assign alu_op2[0] = inst_mul_w | inst_mulh_w | inst_mulh_wu | inst_mod_w | inst_mod_wu | inst_div_w | inst_div_wu;
-assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  //???????????????
-assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; //???????????
-assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; //??????��?????
+assign alu_op2[1] = inst_mul_w | inst_mulh_w | inst_mulh_wu;  
+assign alu_op2[2] = inst_mulh_wu | inst_div_wu | inst_mod_wu; 
+assign alu_op2[3] = inst_mulh_w | inst_mulh_wu | inst_div_wu | inst_div_w; 
 
 assign need_ui5   =  inst_slli_w | inst_srli_w | inst_srai_w;
 assign need_ui12  =  inst_andi | inst_ori | inst_xori;
@@ -1149,9 +1138,9 @@ always @(posedge clk) begin
     end
 end
 assign exc_cancel = wb_ex || ertn_flush || exe_reg_wb_ex || exe_reg_ertn_flush;
-div div (                                   //????????????????????????
+div div (                                   
   .aclk(clk),                               // input wire aclk
-  .aresetn(~ex_sig),                        //reset,??exe???????????????????????0             
+  .aresetn(~ex_sig),                        //reset            
   .s_axis_divisor_tvalid(divisor_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisor_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -1164,7 +1153,7 @@ div div (                                   //????????????????????????
 
 div_gen_0 divu (
   .aclk(clk),                                  // input wire aclk
-  .aresetn(~ex_sig),                            //reset,??exe???????????????????????0          
+  .aresetn(~ex_sig),                            //reset          
   .s_axis_divisor_tvalid(divisoru_valid),    // input wire s_axis_divisor_tvalid
   .s_axis_divisor_tready(divisoru_ready),    // output wire s_axis_divisor_tready
   .s_axis_divisor_tdata(exe_src2),      // input wire [31 : 0] s_axis_divisor_tdata
@@ -1253,14 +1242,14 @@ end
 wire mem_ex_ertn_cancel;
 assign mem_ex_ertn_cancel = wb_ex || ertn_flush || mem_reg_wb_ex || mem_reg_ertn_flush;
 
-wire csr_wen = wb_valid & wb_csr_we;            //????valid???????????????????????????????????
+wire csr_wen = wb_valid & wb_csr_we;            
 assign ertn_flush = wb_valid & wb_ertn_flush;   
 assign csr_wr_en = wb_valid & wb_inst_csr;
 assign exe_ex = exe_valid & (exe_sys_ex | exe_brk_ex | exe_int_ex | exe_ine_ex | exe_adef_ex | ALE);      
 assign mem_ex = mem_valid & (mem_sys_ex | mem_brk_ex | mem_int_ex | mem_ine_ex | mem_adef_ex | mem_ale_ex);      
 assign wb_ex = wb_valid & (wb_sys_ex | wb_brk_ex | wb_ine_ex | wb_int_ex | wb_adef_ex | wb_ale_ex);    
 
-assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   //???wb??��???��?????????????????????
+assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   
 assign rf_waddr = wb_dest;
 assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         
 //Ecode Esubcode
@@ -1274,22 +1263,22 @@ assign wb_ecode = wb_int_ex? 6'h00:
 assign wb_esubcode = 9'b0;                  //exp13 has no esubcode
 
 csr csr1(.clk(clk),
-        .reset(~resetn),                    //reset???
-        .csr_re(1'b1),                      //???????????
-        .csr_num(wb_csr_num),               //???????????
-        .csr_we(csr_wen),                   //???????��???
-        .csr_wmask(wb_csr_wmask),           //????
-        .csr_wvalue(wb_csr_wvalue),         //��????
-        .wb_ex(wb_ex),                      //?????
-        .ertn_flush(ertn_flush),            //ertn?????????
-        .wb_ecode(wb_ecode),                //????????????wb??��??????
-        .wb_esubcode(wb_esubcode),          //???
-        .wb_pc(wb_pc),                      //??PC
-        .wb_vaddr(wb_vaddr),                //??????????
-        .csr_rvalue(csr_rvalue),            //??????
-        .ex_entry(ex_entry),                //????PC????
-        .ertn_pc(ertn_pc),                  //???????????PC
-        .has_int(has_int)                   //?��?????exp12��???
+        .reset(~resetn),                    
+        .csr_re(1'b1),                      
+        .csr_num(wb_csr_num),               
+        .csr_we(csr_wen),                   
+        .csr_wmask(wb_csr_wmask),           
+        .csr_wvalue(wb_csr_wvalue),         
+        .wb_ex(wb_ex),                      
+        .ertn_flush(ertn_flush),            
+        .wb_ecode(wb_ecode),                
+        .wb_esubcode(wb_esubcode),          
+        .wb_pc(wb_pc),                      
+        .wb_vaddr(wb_vaddr),                
+        .csr_rvalue(csr_rvalue),            
+        .ex_entry(ex_entry),                
+        .ertn_pc(ertn_pc),                  
+        .has_int(has_int)                   
 );
 
 // debug info generate

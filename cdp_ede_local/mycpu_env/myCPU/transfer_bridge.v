@@ -1,3 +1,7 @@
+//注释中包含中文，可能需要使用GB编码打开,如果显示正常可以无视
+//if the notes are wrong characters in Chinese
+//please turn 'UTF-8' to 'GB2312',and please save the file correctly
+
 module transfer_bridge(
     input wire              aclk,
     input wire              aresetn,
@@ -118,37 +122,73 @@ reg        axi_w_valid;
 reg        axi_b_ready;
 
 /*--- definition of other signals ---*/
+
+/*--- read request ---*/
 wire        read_req_valid;
-wire        read_inst_req_valid;
-wire        read_data_req_valid;
+wire        read_req_inst_valid;
+wire        read_req_data_valid;
 wire [31:0] read_req_addr;
 wire [ 3:0] read_req_id;
 wire [ 1:0] read_req_size;
 
+/*--- read request completed ---*/
 wire        read_inst_req_ok;
 wire        read_data_req_ok;
 
+/*--- read response ---*/
+wire inst_sram_r_wait;
+wire data_sram_r_wait;
+
+wire read_ready;
+
+wire read_inst_wait;
+wire read_data_wait;
+
+wire read_resp_inst_valid;
+wire read_resp_data_valid;
+
+wire [31:0] read_data;
+
+/*--- write request ---*/
 wire        write_req_valid;
 wire [31:0] write_req_addr;
 wire [ 1:0] write_req_size;
 wire [ 3:0] write_req_strb;
 wire [31:0] write_req_data;
+
+/*--- write request completed ---*/
 wire        write_data_req_ok;
 
+/*--- write response completed ---*/
 wire axi_b_ok;
 
+/*--- data response buffer control sig---*/
 wire data_resp_wen;
-wire write_data_resp_empty;
-wire write_data_resp_full;
+wire data_resp_ren;
+wire data_resp_empty;
+wire data_resp_full;
 
+/*--- write request buffer control sig---*/
+wire write_resp_empty;
+wire write_resp_full;
+wire data_resp_write;
+
+/*--- RAW related judge ---*/
 wire related;
 
+/*--- read or write resp for data_sram ---*/
 wire data_resp_RorW;
 wire data_FIFO_ren;
 
 
+
+
 /*--- State Machine ---*/
-//read request
+
+/*--- read request ---*/
+//考虑当前没有正在等待握手的信号(arready)
+//相关握手信号有效时(DATA > INST 且无相关)再发出请求
+//握手成功后恢复至原状态
 always @(posedge aclk) begin
     if(!aresetn)begin
         axi_ar_id <= 4'h0;
@@ -175,35 +215,32 @@ assign araddr = axi_ar_addr;
 assign arsize = axi_ar_size;
 assign arvalid = axi_ar_valid;
 
-assign read_req_valid = read_inst_req_valid || read_data_req_valid;
+
+assign read_req_valid = read_req_inst_valid || read_req_data_valid;
 //judge inst or data req valid, data > inst
-assign read_inst_req_valid = inst_sram_req && ~read_data_req_valid;
-assign read_data_req_valid = data_sram_req && ~data_sram_wr && !related;
+assign read_req_inst_valid = inst_sram_req && ~read_req_data_valid;
+//judge RAW with sig 'related'
+assign read_req_data_valid = data_sram_req && ~data_sram_wr && !related;
+//judge inst or data data > inst
+assign read_req_id = read_req_data_valid ? 4'h1 : 4'h0;
+assign read_req_addr = read_req_data_valid ? data_sram_addr : inst_sram_addr;
+assign read_req_size = read_req_data_valid ? data_sram_size : inst_sram_size;
 
-assign read_req_id = read_data_req_valid ? 4'h1 : 4'h0;
-assign read_req_addr = read_data_req_valid ? data_sram_addr : inst_sram_addr;
-assign read_req_size = read_data_req_valid ? data_sram_size : inst_sram_size;
+//读请求握手成功，握手成功后一拍arvalid将变低，此时请求完成
+//即aready拉高的后一拍表明握手成功,并发出相关的addr_ok信号
+assign read_inst_req_ok = read_req_inst_valid && ~arvalid;
+assign read_data_req_ok = read_req_data_valid && ~arvalid;
 
-//read response
-wire inst_sram_r_wait;
-wire data_sram_r_wait;
+assign inst_sram_addr_ok = read_inst_req_ok;
+assign data_sram_addr_ok = read_data_req_ok || write_data_req_ok;
 
-wire read_ready;
 
-wire read_inst_wait;
-wire read_data_wait;
-
-wire read_inst_resp_valid;
-wire read_data_resp_valid;
-
-wire [31:0] read_data;
-
+/*--- read response ---*/
+//由于维护两个读数据的队列，分别用于存储inst和data读数据的队列
+//从而采取队列为非满时表明已经准备好接受数据
 always @(posedge aclk) begin
     if(!aresetn)begin
         axi_r_ready <= 1'b0;
-    end
-    else if(read_ready)begin
-        axi_r_ready <= 1'b1;
     end
     else begin
         axi_r_ready <= read_ready;
@@ -212,21 +249,26 @@ end
 
 assign rready = axi_r_ready;
 
+//判断是否准备好接受读数据
 assign read_ready = ~read_inst_wait && ~read_data_wait;
-assign read_inst_resp_valid = rvalid && rready && rid == 4'h0;
-assign read_data_resp_valid = rvalid && rready && rid == 4'h1;
+//读响应握手成功，且根据rid区分inst和data
+assign read_resp_inst_valid = rvalid && rready && rid == 4'h0;
+assign read_resp_data_valid = rvalid && rready && rid == 4'h1;
 assign read_data = rdata;
 
+//为data读数据buffer准备的判断条件
+//由于data部分可能会出现st和ld的先后
+//为保证返回时的顺序正确，从而当且仅当data_sram的等待响应队列为读取请求时才允许从buffer中读取数据
 assign data_FIFO_ren = ~data_sram_r_wait && ~data_resp_RorW;
 
 /*--- inst_read_buffer ---*/
 FIFO inst_buffer(
-    .clk(aclk),
+    .clk(aclk),                         
     .resetn(aresetn),
-    .FIFO_in(read_inst_resp_valid),
-    .FIFO_out(1'b1),
-    .empty(inst_sram_r_wait),
-    .full(read_inst_wait),
+    .FIFO_in(read_resp_inst_valid),         //读响应握手成功时写入队列
+    .FIFO_out(1'b1),                        //由于inst buffer只有读请求出现，从而允许一直读取
+    .empty(inst_sram_r_wait),               //用于表示是否有数据存储，用于判断inst_data_ok
+    .full(read_inst_wait),                  //判断队列是否为满，判断是否准备好接受数据
     .data_in(read_data),
     .data_out(inst_sram_rdata)
 );
@@ -235,8 +277,8 @@ FIFO inst_buffer(
 FIFO data_buffer(
     .clk(aclk),
     .resetn(aresetn),
-    .FIFO_in(read_data_resp_valid),
-    .FIFO_out(data_FIFO_ren),
+    .FIFO_in(read_resp_data_valid),
+    .FIFO_out(data_FIFO_ren),               //只有data_sram等待读响应时才允许读出
     .empty(data_sram_r_wait),
     .full(read_data_wait),
     .data_in(read_data),
@@ -244,13 +286,8 @@ FIFO data_buffer(
 );
 
 
-assign read_inst_req_ok = read_inst_req_valid && ~arvalid;
-assign read_data_req_ok = read_data_req_valid && ~arvalid;
-
-assign inst_sram_addr_ok = read_inst_req_ok;
-assign data_sram_addr_ok = read_data_req_ok || write_data_req_ok;
-
 //write request and data
+//相关判断逻辑与读请求类似，握手请求需要两个通道均无等待请求才能执行
 always @(posedge aclk) begin
     if(!aresetn)begin
         axi_aw_addr <= 32'h0000;
@@ -285,7 +322,9 @@ always @(posedge aclk) begin
     end 
 end
 
+//写请求判断，不能发生RAW相关
 assign write_req_valid = data_sram_req && data_sram_wr && !related;
+//写请求和写数据握手成功
 assign write_data_req_ok = write_req_valid && ~axi_aw_valid && ~axi_w_valid;
 
 assign write_req_addr = data_sram_addr;
@@ -307,45 +346,40 @@ always @(posedge aclk) begin
     if(!aresetn)begin
         axi_b_ready <= 1'b0;
     end
-    else if(axi_b_ready && bvalid)begin
-        axi_b_ready <= 1'b0;
-    end
-    else if(!write_data_resp_empty)begin
-        axi_b_ready <= 1'b1;
+    else begin
+        axi_b_ready <= !write_resp_full;
     end
     
 end
 
-wire data_resp_ren;
-wire write_req_empty;
-wire data_resp_write;
-
-assign data_resp_wen = data_sram_addr_ok;
-assign data_resp_ren = data_sram_data_ok;
 assign bready = axi_b_ready;
 assign axi_b_ok = bvalid & bready;
 
-
-assign data_resp_write = !write_data_resp_empty & data_resp_RorW;
-
-FIFO  write_data_req(
+//由于原有的写请求队列扩充为读写请求队列
+//从而增加了一个队列用于存储写相应判断，用于判断data_ok
+//当写响应握手成功时，表明请求队列中的某一个写请求已经完成
+FIFO  write_data_resp_ok(
     .clk(aclk),
     .resetn(aresetn),
     .FIFO_in(axi_b_ok),
     .FIFO_out(data_resp_write),
-    .empty(write_req_empty),
-    .full(),
+    .empty(write_resp_empty),
+    .full(write_resp_full),
     .data_in(),
     .data_out()
 );
 
+//当存储的data端的请求队列非空且队首为写请求时，允许单独计数
+assign data_resp_write = !data_resp_empty & data_resp_RorW;
+
+//用于存储data请求握手成功但等待返回相应的部分，同时用于判断RAW
 FIFO_RAW data_write_resp(
     .clk(aclk),
     .resetn(aresetn),
     .FIFO_in(data_resp_wen),
     .FIFO_out(data_resp_ren),
-    .empty(write_data_resp_empty),
-    .full(write_data_resp_full),
+    .empty(data_resp_empty),
+    .full(data_resp_full),
     .data_in(axi_aw_addr),
     .data_wr(data_sram_wr),
     .data_out(),
@@ -354,7 +388,18 @@ FIFO_RAW data_write_resp(
     .related(related)
 );
 
+//对data端传来请求的判断
+//所有读写请求握手成功后都加入队列中，其中写请求同时用来判断数据相关
+//出队要求为data_ok准备好时才能出队
+assign data_resp_wen = data_sram_addr_ok;
+assign data_resp_ren = data_sram_data_ok;
+
+//对inst
+//当相应buffer非空即可发出data_ok
 assign inst_sram_data_ok = !inst_sram_r_wait;
-assign data_sram_data_ok = !data_sram_r_wait && ~data_resp_RorW || !write_req_empty && data_resp_RorW;
+//对data
+//若当前等待返回的为读请求，则根据相应buffer非空来判断
+//否则若等待返回的为写请求，则根据是否存在等待的写请求来判断
+assign data_sram_data_ok = !data_sram_r_wait && ~data_resp_RorW || !write_resp_empty && data_resp_RorW;
 
 endmodule

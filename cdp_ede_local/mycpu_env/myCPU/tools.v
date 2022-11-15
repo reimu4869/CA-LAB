@@ -202,7 +202,7 @@ always @ (posedge clk) begin
 end
 
 genvar i;
-generate for (i = 0; i < BUFF_DEPTH; i = i + 1) begin:gen_buff
+generate for (i = 0; i < BUFF_DEPTH; i = i + 1) begin:RAW_JUDGE
     always @ (posedge clk) begin
         if (!resetn) begin
             buffer[i] <= 0;
