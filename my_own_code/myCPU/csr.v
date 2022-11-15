@@ -14,7 +14,7 @@
 `define CSR_TVAL    14'h0042
 `define CSR_TICLR   14'h0044
 
-//éƒ¨åˆ†å®å®šä¹‰å¤§æ¦‚å¯ä»¥åˆå¹¶
+//²¿·Öºê¶¨Òå´ó¸Å¿ÉÒÔºÏ²¢
 
 `define CSR_CRMD_PLV        1:0
 `define CSR_CRMD_IE         2
@@ -45,7 +45,7 @@
 `define CSR_TCFG_PERIOD     1
 `define CSR_TCFG_INITVAL    29:0
 
-//æ ¹æ®ä¸‹ä¸€é˜¶æ®µå®éªŒå¯èƒ½éœ€è¦æ·»åŠ ä¿¡å·
+//¸ù¾İÏÂÒ»½×¶ÎÊµÑé¿ÉÄÜĞèÒªÌí¼ÓĞÅºÅ
 
 module csr(
     input wire          clk,
@@ -162,14 +162,14 @@ always @(posedge clk) begin
     else if (csr_we && csr_num==`CSR_ESTAT)
         csr_estat_is[1:0] <= csr_wmask[`CSR_ESTAT_IS10] & csr_wvalue[`CSR_ESTAT_IS10]
                             | ~csr_wmask[`CSR_ESTAT_IS10] & csr_estat_is[1:0];
-    csr_estat_is[9:2] <= 8'b0 /*hw_int_in[7:0]*/;                                           //exp12æœªå®ç°ä¸­æ–­ï¼Œä»è€Œå…¨éƒ¨ç½®0
+    csr_estat_is[9:2] <= 8'b0 /*hw_int_in[7:0]*/;                                           //exp12Î´ÊµÏÖÖĞ¶Ï£¬´Ó¶øÈ«²¿ÖÃ0
     csr_estat_is[10] <= 1'b0;
     if (timer_cnt[31:0]==32'b0)
         csr_estat_is[11] <= 1'b1;
     else if (csr_we && csr_num==`CSR_TICLR && csr_wmask[`CSR_TICLR_CLR]
                                 && csr_wvalue[`CSR_TICLR_CLR])
         csr_estat_is[11] <= 1'b0;
-    csr_estat_is[12] <= 1'b0 /*ipi_int_in*/;                                                 //exp12æœªå®ç°ä¸­æ–­ï¼Œä»è€Œå…¨éƒ¨ç½®0
+    csr_estat_is[12] <= 1'b0 /*ipi_int_in*/;                                                 //exp12Î´ÊµÏÖÖĞ¶Ï£¬´Ó¶øÈ«²¿ÖÃ0
 end
 
 //ESTAT Ecode Esubcode
@@ -223,7 +223,7 @@ end
 //TID
 always @(posedge clk) begin
     if (reset)
-        csr_tid_tid <= 31'b0 /*coreid_in*/;                                             //exp12æš‚æ—¶ä¸å®ç°ï¼Œä»è€Œç½®0
+        csr_tid_tid <= 31'b0 /*coreid_in*/;                                             //exp12ÔİÊ±²»ÊµÏÖ£¬´Ó¶øÖÃ0
     else if (csr_we && csr_num==`CSR_TID)
         csr_tid_tid <= csr_wmask[`CSR_TID_TID]&csr_wvalue[`CSR_TID_TID]
                         | ~csr_wmask[`CSR_TID_TID]&csr_tid_tid;
