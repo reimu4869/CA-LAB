@@ -1,10 +1,11 @@
-//注释中包含中文，如果乱码，则可能需要使用GB编码打开,如果显示正常可以无视
+//注释中包含中文，如果乱码，则可能�?要使用GB编码打开,如果显示正常可以无视
 //if the notes are wrong characters in Chinese，please turn 'UTF-8' to 'GB2312',
 //else ignore this message and please save the file correctly
+`include "csr_head.v"
 
 module mycpu_core(
     input  wire        clk,
-    input  wire        resetn,
+    input  wire        resetn,  
     // inst sram interface
     output wire        inst_sram_en,
     output wire [ 3:0] inst_sram_we,                        
@@ -153,6 +154,31 @@ wire        inst_break;
 wire        inst_rdcntvl_w;
 wire        inst_rdcntvh_w;
 wire        inst_rdcntid_w;
+//tlbsrch tlbwr tlbfill tlbrd invtlb
+wire        inst_tlbsrch;
+wire        inst_tlbwr;
+wire        inst_tlbfill;
+wire        inst_tlbrd;
+wire        inst_invtlb;
+
+reg         exe_inst_tlbsrch;
+reg         exe_inst_tlbwr;
+reg         exe_inst_tlbfill;
+reg         exe_inst_tlbrd;
+reg         exe_inst_invtlb;
+
+reg         mem_inst_tlbsrch;
+reg         mem_inst_tlbwr;
+reg         mem_inst_tlbfill;
+reg         mem_inst_tlbrd;
+reg         mem_inst_invtlb;
+
+reg         wb_inst_tlbsrch;
+reg         wb_inst_tlbwr;
+reg         wb_inst_tlbfill;
+reg         wb_inst_tlbrd;
+reg         wb_inst_invtlb;
+
 wire        res_from_counter;
 reg [63:0]  counter;
 
@@ -261,6 +287,7 @@ reg        exe_inst_st_h;
 reg        exe_inst_st_w;
 reg        exe_inst_rdcntid_w;
 reg [31:0] exe_rkd_value;
+reg [31:0] exe_rj_value;
 //CSR MEM
 reg [13:0] exe_csr_num;
 reg	       exe_csr_we;
@@ -311,6 +338,11 @@ reg        mem_ale_ex;
 reg        mem_int_ex;
 
 wire       mem_ex;
+
+wire    wb_tlbsrch_hit;
+wire  [3:0]  wb_tlbsrch_hit_idx;
+//reg        wb_tlbsrch_hit;//
+//reg        wb_tlbsrch_hit_idx;
 
 reg       mem_is_ldst;
 //WBreg
@@ -377,7 +409,6 @@ wire  [15:0] half_word;
 wire  [7 :0] byte;
 wire  [31:0] extended_half;
 wire  [31:0] extended_byte;
-wire  [4 :0] we;
 wire  [31:0] st_data;
 wire  [3 :0] st_b_strb;
 wire  [3 :0] st_h_strb;
@@ -417,7 +448,89 @@ reg mem_reg_ertn_flush,mem_reg_wb_ex;
 reg br_cancel;
 reg if_ex_or_ertn_bk;
 
+//TLB signals
+// search port 0 (for fetch)·
+wire  [ 18:0] s0_vppn;
+wire          s0_va_bit12;      
+wire   [ 9:0] s0_asid;           
+wire         s0_found;        
+wire [3:0] s0_index;
+wire [ 19:0] s0_ppn;         
+wire  [ 5:0] s0_ps;          
+wire  [ 1:0] s0_plv;           
+wire  [ 1:0] s0_mat;
+wire         s0_d;          
+wire         s0_v;         
+// search port 1 (for load/store)      
+wire  [ 18:0] s1_vppn;
+wire          s1_va_bit12;
+wire   [ 9:0] s1_asid;
+wire         s1_found;
+wire [3:0] s1_index;
+wire [ 19:0] s1_ppn;
+wire  [ 5:0] s1_ps;
+wire  [ 1:0] s1_plv;
+wire  [ 1:0] s1_mat;
+wire         s1_d;
+wire         s1_v;
+// invtlb opcode   //use for INVTLB
+wire         invtlb_valid;
+reg   [ 4:0] invtlb_op;
+// write port //used for TLBWR and TLBFILL
+wire         we; //w(rite) e(nable)
+wire [3:0]   w_index;
+wire         w_e;  
+wire [ 18:0] w_vppn;
+wire  [ 5:0] w_ps;
+wire  [ 9:0] w_asid;
+wire         w_g;
+wire [ 19:0] w_ppn0;
+wire  [ 1:0] w_plv0;
+wire  [ 1:0] w_mat0;
+wire         w_d0;
+wire         w_v0;
+wire [ 19:0] w_ppn1;
+wire  [ 1:0] w_plv1;
+wire  [ 1:0] w_mat1;
+wire         w_d1;
+wire         w_v1;
+     // read port   //used for TLBRD
+wire [3:0] r_index;
+wire         r_e;
+wire [ 18:0] r_vppn;
+wire  [ 5:0] r_ps;
+wire  [ 9:0] r_asid;
+wire         r_g;
+wire [ 19:0] r_ppn0;
+wire  [ 1:0] r_plv0;
+wire  [ 1:0] r_mat0;
+wire         r_d0;
+wire         r_v0;
+wire [ 19:0] r_ppn1;
+wire  [ 1:0] r_plv1;
+wire  [ 1:0] r_mat1;
+wire         r_d1;
+wire         r_v1;
 
+
+wire tlbsrch_valid;
+wire tlbrd_valid;
+wire tlbwr_valid;
+wire tlbfill_valid;
+
+wire inst_tlb;
+
+wire tlbsrch_hit;
+wire [3:0 ] tlbsrch_hit_idx;
+//重取指标志与pc
+wire id_refetch_flag;
+reg exe_refetch_flag;
+reg mem_refetch_flag;
+reg wb_refetch_flag;
+wire wb_refetch;
+reg reg_wb_refetch;
+reg [31:0] reg_refetch_pc;
+wire [31:0] refetch_pc;
 
 //wire is_ex_or_ertn;
 //assign is_ex_or_ertn = exe_ex && mem_ex && wb_ex && mem_ertn_flush && wb_ertn_flush;
@@ -445,7 +558,7 @@ always @(posedge clk) begin
     else if(if_allowin)begin
         if_valid <= to_if_valid;
     end
-    else if(wb_ex || ertn_flush)begin
+    else if(wb_ex || ertn_flush || wb_refetch)begin
         if_valid <= 1'b0;
     end
     else if(br_taken_cancel/* || ertn_block*/)begin
@@ -465,10 +578,10 @@ always @(posedge clk) begin
     if(!resetn) begin
         id_valid <= 1'b0;
     end
-    else if(wb_ex || ertn_flush)begin
+    else if(wb_ex || ertn_flush || wb_refetch)begin
         id_valid <= 1'b0;
     end
-    else if(br_taken_cancel/* || ertn_block*/)begin
+    else if(br_taken_cancel)begin
         id_valid <= 1'b0;
     end
     else if(id_allowin)begin
@@ -480,7 +593,6 @@ always @(posedge clk) begin
         inst <= if_inst;//inst
         id_pc <= if_pc;//pc
         id_adef_ex <= if_adef_ex;
-        //id_inst_sram_addr_ok <= inst_sram_addr_ok;
     end
 end
 
@@ -488,8 +600,9 @@ always @(posedge clk) begin
     if(!resetn) begin
         exe_valid <= 1'b0;
         exe_op <=4'b0000;
+        exe_inst_tlbsrch <= 1'b0;
     end
-    else if((wb_ex || ertn_flush) && wb_valid)begin
+    else if((wb_ex || ertn_flush || wb_refetch) && wb_valid)begin
         exe_valid <= 1'b0;
     end
     else if(exe_allowin)begin
@@ -505,6 +618,8 @@ always @(posedge clk) begin
         exe_src2 <= alu_src2;
         exe_data_sram_en <= res_from_mem || mem_we;
         exe_data_sram_we <= {4{mem_we}};// & st_strb;
+        
+        exe_rj_value <= rj_value;
         exe_rkd_value <= rkd_value;
         //exe_data_sram_wdata <= st_data;
         exe_mem_we <= mem_we;
@@ -531,6 +646,7 @@ always @(posedge clk) begin
         exe_adef_ex <= id_adef_ex;
         exe_ertn_flush <= inst_ertn;
         
+
         exe_counter <= {res_from_counter,inst_rdcntvh_w};
         
         exe_csr_we <= csr_we;
@@ -538,6 +654,15 @@ always @(posedge clk) begin
         exe_csr_wmask <= csr_mask;
         exe_csr_wvalue <= csr_wvalue;
         exe_inst_csr <= inst_csr;
+
+        exe_inst_tlbsrch <= inst_tlbsrch;
+        exe_inst_tlbwr <= inst_tlbwr;
+        exe_inst_tlbfill <= inst_tlbfill;
+        exe_inst_tlbrd <= inst_tlbrd;
+        exe_inst_invtlb <= inst_invtlb;
+        invtlb_op <= id_invtlb_op;
+
+        exe_refetch_flag <= id_refetch_flag;
     end
     else if((dividend_valid && dividend_ready) || (divisor_valid && divisor_ready) )begin
          exe_divisor_valid <= !(divisor_valid && divisor_ready);
@@ -553,7 +678,7 @@ always @(posedge clk) begin
     if(!resetn) begin
         mem_valid <= 1'b0;
     end
-    else if(wb_valid && (wb_ex || ertn_flush))begin
+    else if(wb_valid && (wb_ex || ertn_flush || wb_refetch))begin
         mem_valid <= 1'b0;
     end
     else if(mem_allowin)begin
@@ -591,6 +716,14 @@ always @(posedge clk) begin
         mem_ine_ex <= exe_ine_ex;
         mem_int_ex <= exe_int_ex;
         mem_adef_ex <= exe_adef_ex;
+
+        mem_inst_tlbsrch <= exe_inst_tlbsrch;
+        mem_inst_tlbwr <= exe_inst_tlbwr;
+        mem_inst_tlbfill <= exe_inst_tlbfill;
+        mem_inst_tlbrd <= exe_inst_tlbrd;
+        mem_inst_invtlb <= exe_inst_invtlb;
+
+        mem_refetch_flag <= exe_refetch_flag;
     end
 end
 
@@ -626,10 +759,21 @@ always @(posedge clk) begin
         wb_ine_ex <= mem_ine_ex;
         wb_int_ex <= mem_int_ex;
         wb_adef_ex <= mem_adef_ex;
+
+        wb_inst_tlbsrch <= mem_inst_tlbsrch;
+        wb_inst_tlbwr <= mem_inst_tlbwr;
+        wb_inst_tlbfill <= mem_inst_tlbfill;
+        wb_inst_tlbrd <= mem_inst_tlbrd;
+        wb_inst_invtlb <= mem_inst_invtlb;
+
+        wb_refetch_flag <= mem_refetch_flag;
+
+        //wb_tlbsrch_hit <= s1_found;
+        //wb_tlbsrch_hit_idx <= s1_index;
     end
 end
 
-//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞
+//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞 
 wire mem_ld_waiting;
 assign mem_ld_waiting = mem_valid & mem_res_from_mem & ~data_sram_data_ok;
 
@@ -645,7 +789,7 @@ assign if_ready_go = ((inst_sram_data_ok) || if_inst_valid) && !br_cancel && !if
 assign if_allowin = !if_valid || if_ready_go && id_allowin;
 assign if_to_id_valid = if_valid && if_ready_go;
 //id_control
-assign id_ready_go = (!(block_ld_eq_target && id_valid || csr_eq_target && id_valid)) & exe_allowin;                
+assign id_ready_go = (!(block_ld_eq_target && id_valid || csr_eq_target && id_valid || tlbsrch_blk && id_valid)) & exe_allowin;                
 assign id_allowin = (!id_valid || id_ready_go && exe_allowin);
 assign id_to_exe_valid = id_valid & id_ready_go;
 //exe_control
@@ -690,18 +834,24 @@ assign data_sram_size  = exe_inst_st_b || exe_inst_ld_bu || exe_inst_ld_b? 2'b00
 
 assign ex_sig = wb_ex | mem_ex | exe_ex;                 
 
+//exp18 added
+//如果 TLBSRCH 指令在 EX 级的时，有一条修改 CSR.ASID 或CSR.TLBEHI 
+//的CSR 指令或者TLBRD 指令恰好在 MEM 级，那么直接读 CSR 模块的 ASID
+//TLBEHI 的就会出现问题
+wire tlbsrch_blk;
 
-//pre-IF
+assign tlbsrch_blk = exe_inst_tlbsrch & (mem_csr_num == `CSR_ASID || mem_csr_num == `CSR_TLBEHI || mem_inst_tlbrd);
+
 assign csr_exe_eq_target = exe_eq_target & exe_inst_csr & ~ex_sig ;
 assign csr_mem_eq_target = mem_eq_target & mem_inst_csr & ~ex_sig;
 assign csr_wb_eq_target  =  wb_eq_target &  wb_inst_csr & ~ex_sig;
 assign csr_eq_target = csr_exe_eq_target | csr_mem_eq_target | csr_wb_eq_target;
 //exp15 changed
-//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞            
+//ld在EXE阶段产生RAW时，由于指令数据等待的延迟，需要通过MEM阶段是否在等待data_ok来判断堵塞          
 assign block_ld_eq_target = exe_eq_target & exe_res_from_mem & ~ex_sig | mem_ld_waiting;
 
 assign br_taken_cancel = id_ready_go && id_valid && br_taken;
-//assign br_taken2 = br_taken_cancel && !br_stall;
+//pre-IF
 //branch control
 always @(posedge clk) begin
     if(!resetn) begin
@@ -722,13 +872,17 @@ always @(posedge clk) begin
         reg_ertn_flush <= 1'b0;
         reg_ex_entry <= 32'b0;
         reg_ertn_pc <= 32'b0;
+        reg_wb_refetch <= 1'b0;
+        reg_refetch_pc <= 32'b0;
     end
     else if (pre_if_ready_go && if_allowin)begin
         reg_wb_ex <= 1'b0;
         reg_ertn_flush <= 1'b0;
         reg_ex_entry <= 32'b0;
         reg_ertn_pc <= 32'b0;
-    end  else if (wb_ex || ertn_flush) begin
+        reg_wb_refetch <= 1'b0;
+        reg_refetch_pc <= 32'b0;
+    end  else if (wb_ex || ertn_flush || wb_refetch) begin
         if (wb_ex) begin
             reg_wb_ex <= 1'b1;
             reg_ex_entry <= ex_entry;
@@ -737,17 +891,24 @@ always @(posedge clk) begin
             reg_ertn_flush <= 1'b1;
             reg_ertn_pc <= ertn_pc;
         end
+        if (wb_refetch) begin   //add in exp 18
+            reg_wb_refetch <= 1'b1;
+            reg_refetch_pc <= refetch_pc;
+        end
     end
     
 end
 
 //nextPC
 assign seq_pc   = if_pc + 3'h4;                 
-assign nextpc   = ertn_flush      ? ertn_pc      :                            
-                  reg_ertn_flush  ? reg_ertn_pc  ://added
+assign nextpc   = 
+                  wb_refetch      ? refetch_pc   : //added                           
+                  reg_wb_refetch  ? reg_refetch_pc  : //added
+                  ertn_flush      ? ertn_pc      :                            
+                  reg_ertn_flush  ? reg_ertn_pc  :
                   wb_ex           ? ex_entry     :
-                  reg_wb_ex       ? reg_ex_entry ://added
-                  reg_br_taken    ? reg_br_target://added
+                  reg_wb_ex       ? reg_ex_entry :
+                  reg_br_taken    ? reg_br_target:
                   (br_taken && !br_stall) ? br_target    : 
                   seq_pc;   
                   
@@ -800,17 +961,14 @@ always @ (posedge clk) begin
         ex_ertn_cancel_first <= 1'b0;
     end
 end
-
-wire debug_fs_cancel_res;
-assign debug_fs_cancel_res = inst_sram_data_ok && !id_allowin && !if_inst_valid && !if_ex_ertn_cancel && !br_cancel;
 always @ (posedge clk) begin
     if(!resetn) begin
         if_inst_buff <= 32'b0;
         if_inst_valid <= 1'b0;
-    end else if (id_allowin || wb_ex || ertn_flush) begin
+    end else if (id_allowin || wb_ex || ertn_flush || wb_refetch) begin
         if_inst_buff <= 32'b0;
         if_inst_valid <= 1'b0;
-    end else if(debug_fs_cancel_res) begin
+    end else if(inst_sram_data_ok && !id_allowin && !if_inst_valid && !if_ex_ertn_cancel && !br_cancel) begin
         if_inst_buff <= inst_sram_rdata;
         if_inst_valid <= 1'b1;
     end 
@@ -820,7 +978,7 @@ assign if_inst = if_inst_valid ? if_inst_buff : inst_sram_rdata;//inst selection
 always @ (posedge clk) begin
     if(!resetn) begin
         if_ex_ertn_cancel <= 1'b0;
-    end else if((if_valid && !if_ready_go /*|| to_if_valid*/) && (wb_ex || ertn_flush)) begin
+    end else if((if_valid && !if_ready_go /*|| to_if_valid*/) && (wb_ex || ertn_flush || wb_refetch)) begin
         if_ex_ertn_cancel <= 1'b1;
     end else if(inst_sram_data_ok && !br_cancel_first) begin
         if_ex_ertn_cancel <= 1'b0;
@@ -930,14 +1088,22 @@ assign inst_ertn = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0]
 assign inst_rdcntvl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_9_5_d[5'h0];
 assign inst_rdcntvh_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h19] & op_9_5_d[5'h0]; 
 assign inst_rdcntid_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h0] & op_19_15_d[5'h00] & op_14_10_d[5'h18] & op_4_0_d[5'h0];
-                    
-assign INE=~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor | inst_slli_w | 
+//tlb
+assign inst_tlbsrch = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & op_14_10_d[5'h0a];
+assign inst_tlbrd   = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & op_14_10_d[5'h0b];
+assign inst_tlbwr   = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & op_14_10_d[5'h0c];
+assign inst_tlbfill = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & op_14_10_d[5'h0d];
+assign inst_invtlb  = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h13];
+
+
+assign INE= (inst_invtlb && id_invtlb_op > 5'd6) || ~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor | inst_slli_w | 
             inst_srli_w | inst_srai_w | inst_sll_w | inst_srl_w | inst_sra_w | inst_mul_w | inst_mulh_w | inst_mulh_wu | 
             inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu | inst_addi_w |inst_slti | inst_sltui | inst_andi | 
             inst_ori | inst_xori | inst_jirl | inst_b | inst_bl | inst_beq | inst_bne | inst_lu12i_w  | inst_pcaddu12i | 
             inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_ld_w | inst_ld_h | inst_ld_b | inst_ld_hu | inst_ld_bu
             | inst_st_w | inst_st_h | inst_st_b | inst_csrrd | inst_csrwd  | inst_csrxchg | inst_syscall | inst_break |
-            inst_ertn | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w);
+            inst_ertn | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w | inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill |
+            inst_invtlb);
              
 assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_req) ;
 assign ALE  = (exe_inst_ld_h | exe_inst_ld_hu | exe_inst_st_h) & alu_result[0] ||(exe_inst_ld_w | exe_inst_st_w) &(alu_result[1:0]!=2'b00)  ;
@@ -1052,7 +1218,8 @@ assign res_from_counter = inst_rdcntvl_w | inst_rdcntvh_w;
 assign dst_is_r1     = inst_bl;
 assign br_stall      = !id_ready_go & (inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_b | inst_bl);// | inst_jirl);
 
-assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_st_h & ~inst_st_b;
+assign gr_we         = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu & ~inst_st_h & ~inst_st_b
+                     & ~inst_tlbsrch & ~inst_tlbwr & ~inst_tlbrd & ~inst_tlbfill & ~inst_invtlb;// added in exp 18
 assign mem_we        = inst_st_w | inst_st_h | inst_st_b;
 assign dest          = dst_is_r1 ? 5'd1 :
                        inst_rdcntid_w? rj: rd;
@@ -1111,15 +1278,7 @@ assign dividend_valid = exe_dividend_valid;
 assign divisoru_valid = exe_divisoru_valid;
 assign dividendu_valid = exe_dividendu_valid;
 //EXE_stage
-always @(posedge clk) begin
-    if(!resetn) begin
-        reg_exe_addr_ok <= 1'b0;
-    end else if (data_sram_addr_ok && data_sram_req && !mem_allowin) begin
-        reg_exe_addr_ok <= 1'b1;
-    end else if (mem_allowin) begin
-        reg_exe_addr_ok <= 1'b0;
-    end
-end
+
 
 always @(posedge clk) begin
     if(!resetn) begin
@@ -1128,7 +1287,7 @@ always @(posedge clk) begin
     end else if (id_to_exe_valid && exe_allowin)begin
         exe_reg_wb_ex <= 1'b0;
         exe_reg_ertn_flush <= 1'b0;
-    end else if (wb_ex || ertn_flush) begin
+    end else if (wb_ex || ertn_flush || wb_refetch) begin
         if (wb_ex) begin
             exe_reg_wb_ex <= 1'b1;
         end
@@ -1137,7 +1296,7 @@ always @(posedge clk) begin
         end
     end
 end
-assign exc_cancel = wb_ex || ertn_flush || exe_reg_wb_ex || exe_reg_ertn_flush;
+
 div div (                                   
   .aclk(clk),                               // input wire aclk
   .aresetn(~ex_sig),                        //reset            
@@ -1180,7 +1339,13 @@ assign result= (exe_op[0] & exe_op[3])? div_mul_result[63:32] :
                (exe_op[0] & !exe_op[3])? div_mul_result[31:0] :
                (exe_counter[0] & exe_counter[1]) ? counter[63:32]:
                (exe_counter[0] & exe_counter[1]) ? counter[31:0]:            
-                                         alu_result;
+                                        alu_result;
+//exe to tlb
+assign s1_asid = invtlb_valid ? exe_rj_value[9:0] : w_asid;
+assign s1_vppn = tlbsrch_valid ? w_vppn : 
+                (invtlb_valid ? exe_rkd_value[31:13] 
+                                        : 19'b0);
+assign s1_va_bit12 = invtlb_valid ? exe_rkd_value[12] : 1'b0;
 //store
 assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
                  exe_inst_st_h ? {2{exe_rkd_value[15:0]}} :
@@ -1222,26 +1387,6 @@ assign mem_result =
     ({32{mem_inst_ld_b | mem_inst_ld_bu}} & extended_byte) |
     ({32{mem_inst_ld_h | mem_inst_ld_hu}} & extended_half); 
 
-always @(posedge clk) begin
-    if(!resetn) begin
-        mem_reg_wb_ex <= 1'b0;
-        mem_reg_ertn_flush <= 1'b0;
-    end else if (id_to_exe_valid && exe_allowin)begin
-        mem_reg_wb_ex <= 1'b0;
-        mem_reg_ertn_flush <= 1'b0;
-    end else if (wb_ex || ertn_flush) begin
-        if (wb_ex) begin
-            mem_reg_wb_ex <= 1'b1;
-        end
-        if (ertn_flush) begin
-            mem_reg_ertn_flush <= 1'b1;
-        end
-    end
-end
-
-wire mem_ex_ertn_cancel;
-assign mem_ex_ertn_cancel = wb_ex || ertn_flush || mem_reg_wb_ex || mem_reg_ertn_flush;
-
 wire csr_wen = wb_valid & wb_csr_we;            
 assign ertn_flush = wb_valid & wb_ertn_flush;   
 assign csr_wr_en = wb_valid & wb_inst_csr;
@@ -1262,6 +1407,33 @@ assign wb_ecode = wb_int_ex? 6'h00:
  //exp12 only for SYS
 assign wb_esubcode = 9'b0;                  //exp13 has no esubcode
 
+//add in exp18
+wire [4:0] id_invtlb_op;
+assign id_invtlb_op = rd;
+//TLB指令引发的重取指机制 判断在id级
+assign id_refetch_flag = inst_tlbfill || inst_tlbwr || inst_tlbrd || inst_invtlb;
+ //|| (csr_we && (csr_num == `CSR_CRMD || csr_num == `CSR_ASID));
+//重取标志和标记异常的指令处理方式与异常等相同 这里用wb_refetch来表示 
+assign wb_refetch = wb_refetch_flag && wb_valid;
+assign refetch_pc = inst_invtlb && id_invtlb_op > 5'd6 ? ex_entry : wb_pc + 4;
+//
+//CSR中TLB相关的控制信号
+//
+//指令类型
+assign tlbsrch_valid = exe_inst_tlbsrch && exe_valid;
+assign tlbrd_valid = wb_inst_tlbrd && wb_valid;
+assign tlbwr_valid = wb_inst_tlbwr && wb_valid;
+assign tlbfill_valid = wb_inst_tlbfill && wb_valid;
+//assign invtlb_valid = wb_inst_invtlb;
+assign invtlb_valid = exe_inst_invtlb && exe_valid;
+wire [3:0] tlbidx_idx;
+assign r_index = tlbidx_idx;
+assign w_index = tlbidx_idx;// ? tlbidx_idx : counter;//tlbidx_idx;//
+assign we = tlbwr_valid || tlbfill_valid;
+
+assign tlbsrch_hit = s1_found;// wb_tlbsrch_hit;
+assign tlbsrch_hit_idx = s1_index;// wb_tlbsrch_hit_idx;
+
 csr csr1(.clk(clk),
         .reset(~resetn),                    
         .csr_re(1'b1),                      
@@ -1278,10 +1450,115 @@ csr csr1(.clk(clk),
         .csr_rvalue(csr_rvalue),            
         .ex_entry(ex_entry),                
         .ertn_pc(ertn_pc),                  
-        .has_int(has_int)                   
+        .has_int(has_int),
+        //add in exp18       
+        .tlbsrch_valid(tlbsrch_valid),
+        .tlbrd_valid(tlbrd_valid),
+        .tlbwr_valid(tlbwr_valid),
+        .tlbfill_valid(tlbfill_valid),
+        .tlbsrch_hit(tlbsrch_hit),
+        .tlbsrch_hit_idx(tlbsrch_hit_idx),  
+        .tlbidx_idx(tlbidx_idx),  
+        //write
+        .tlb_w_e(w_e),
+        .tlb_w_vppn(w_vppn),
+        .tlb_w_ps(w_ps),
+        .tlb_w_asid(w_asid),
+        .tlb_w_g(w_g),
+        .tlb_w_ppn0(w_ppn0),
+        .tlb_w_plv0(w_plv0),
+        .tlb_w_mat0(w_mat0),
+        .tlb_w_d0(w_d0),
+        .tlb_w_v0(w_v0),    
+        .tlb_w_ppn1(w_ppn1),
+        .tlb_w_plv1(w_plv1),
+        .tlb_w_mat1(w_mat1),
+        .tlb_w_d1(w_d1),
+        .tlb_w_v1(w_v1),  
+        //read
+        .tlb_r_e(r_e),
+        .tlb_r_vppn(r_vppn),
+        .tlb_r_ps(r_ps),
+        .tlb_r_asid(r_asid),
+        .tlb_r_g(r_g),
+        .tlb_r_ppn0(r_ppn0),
+        .tlb_r_plv0(r_plv0),
+        .tlb_r_mat0(r_mat0),
+        .tlb_r_d0(r_d0),
+        .tlb_r_v0(r_v0),    
+        .tlb_r_ppn1(r_ppn1),
+        .tlb_r_plv1(r_plv1),
+        .tlb_r_mat1(r_mat1),
+        .tlb_r_d1(r_d1),
+        .tlb_r_v1(r_v1)
 );
-
-// debug info generate
+//实例化TLB模块
+tlb #(.TLBNUM(16)) tlb0(
+    .clk        (clk),
+    // search port 0 (for fetch)·
+    .s0_vppn    (s0_vppn),
+    .s0_va_bit12(s0_va_bit12),
+    .s0_asid    (s0_asid),
+    .s0_found   (s0_found),
+    .s0_index   (s0_index),
+    .s0_ppn     (s0_ppn),
+    .s0_ps      (s0_ps),
+    .s0_plv     (s0_plv),
+    .s0_mat     (s0_mat),
+    .s0_d       (s0_d),
+    .s0_v       (s0_v),
+    // search port 1 (for load/store)
+    .s1_vppn    (s1_vppn),
+    .s1_va_bit12(s1_va_bit12),
+    .s1_asid    (s1_asid),
+    .s1_found   (s1_found),
+    .s1_index   (s1_index),
+    .s1_ppn     (s1_ppn),
+    .s1_ps      (s1_ps),
+    .s1_plv     (s1_plv),
+    .s1_mat     (s1_mat),
+    .s1_d       (s1_d),
+    .s1_v       (s1_v),
+    // invtlb opcode   //use for INVTLB
+    .invtlb_op  (invtlb_op),
+    .invtlb_valid(invtlb_valid),
+    // write port //use for TLBWR and TLBFILL
+    .we         (we),
+    .w_index    (w_index),
+    .w_e        (w_e),
+    .w_vppn     (w_vppn),
+    .w_ps       (w_ps),
+    .w_asid     (w_asid),
+    .w_g        (w_g),
+    .w_ppn0     (w_ppn0),
+    .w_plv0     (w_plv0),
+    .w_mat0     (w_mat0),
+    .w_d0       (w_d0),
+    .w_v0       (w_v0),
+    .w_ppn1     (w_ppn1),
+    .w_plv1     (w_plv1),
+    .w_mat1     (w_mat1),
+    .w_d1       (w_d1),
+    .w_v1       (w_v1),
+     // read port /used for TLBRD
+    .r_index    (r_index),
+    .r_e        (r_e),
+    .r_vppn     (r_vppn),
+    .r_ps       (r_ps),
+    .r_asid     (r_asid),
+    .r_g        (r_g),
+    .r_ppn0     (r_ppn0),
+    .r_plv0     (r_plv0),
+    .r_mat0     (r_mat0),
+    .r_d0       (r_d0),
+    .r_v0       (r_v0),
+    .r_ppn1     (r_ppn1),
+    .r_plv1     (r_plv1),
+    .r_mat1     (r_mat1),
+    .r_d1       (r_d1),
+    .r_v1       (r_v1)
+);
+//debug info generate
 assign debug_wb_pc       = wb_pc;
 assign debug_wb_rf_we   = {4{rf_we}};                   
 assign debug_wb_rf_wnum  = wb_dest;
