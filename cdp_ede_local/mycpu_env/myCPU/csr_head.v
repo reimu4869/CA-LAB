@@ -20,11 +20,19 @@
 `define CSR_TLBELO1   14'h0013
 `define CSR_ASID      14'h0018
 `define CSR_TLBRENTRY 14'h0088
+//exp19
+`define CSR_DMW0      14'h0180
+`define CSR_DMW1      14'h0181 
 
 //部分宏定义大概可以合并
 
 `define CSR_CRMD_PLV        1:0
 `define CSR_CRMD_IE         2
+//exp19
+`define CSR_CRMD_DA         3
+`define CSR_CRMD_PG         4
+`define CSR_CRMD_DATF       6:5
+`define CSR_CRMD_DATM       8:7
 
 `define CSR_PRMD_PPLV       1:0
 `define CSR_PRMD_PIE        2
@@ -33,10 +41,17 @@
 
 `define CSR_ESTAT_IS10      1:0
 
-
+//exp19 add
+`define ECODE_PIL           6'h01
+`define ECODE_PIS           6'h02
+`define ECODE_PIF           6'h03
+`define ECODE_PME           6'h04
 `define ECODE_ADE           6'h08
+`define ECODE_PPI           6'h07
 `define ECODE_ALE           6'h09
+`define ECODE_TLBR          6'h3f
 `define ESUBCODE_ADEF       9'h000
+`define ESUBCODE_ADEM       9'h001
 
 `define CSR_ERA_PC          31:0
 
@@ -70,3 +85,9 @@
 `define CSR_ASID_ASID       9:0
 //TLBRENTRY
 `define CSR_TLBRENTRY_PA    31:6
+//DMW
+`define CSR_DMW_PLV0        0
+`define CSR_DMW_PLV3        3
+`define CSR_DMW_MAT         5:4
+`define CSR_DMW_PSEG        27:25
+`define CSR_DMW_VSEG        31:29

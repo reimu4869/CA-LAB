@@ -223,26 +223,42 @@ wire [31:0] result;
 wire [31:0] mem_result;
 wire [31:0] final_result;
 
-wire ADEF;
-wire ALE;
-wire INE;
-wire ertn_block;
+wire        ADEF;
+wire        ALE;
+wire        INE;
+wire        ertn_block;
+wire        exe_refill;
+wire        exe_PIL;
+wire        exe_PIS;
+wire        exe_PPI;
+wire        exe_PME;
 //to_fs signals
 //used in  pre-IF stage
-wire to_if_valid;
-wire to_if_ready_go;
-wire pre_if_valid;
-wire pre_if_ready_go;
-reg [31:0] pre_if_pc;
+wire        to_if_valid;
+wire        to_if_ready_go;
+wire        pre_if_valid;
+wire        pre_if_ready_go;
+reg  [31:0] pre_if_pc;
 //IFreg
-wire if_to_id_valid;
-wire if_ready_go;
-wire if_allowin;
-wire validin;
+wire        if_to_id_valid;
+wire        if_ready_go;
+wire        if_allowin;
+wire        validin;
 reg  [31:0] if_pc;
 reg         if_valid;
 
-reg if_adef_ex;
+//exp19 add
+wire        pre_if_ex;
+reg         if_ex;
+
+reg         if_adef_ex;
+reg         if_refill_ex;
+reg         if_PPI_ex;
+reg         if_PIF_ex;
+
+wire        mapping_ADEF;
+
+
 
 //IDreg
 wire id_ready_go;
@@ -253,6 +269,16 @@ reg [31:0] id_pc;
 reg [31:0] inst;
 
 reg id_adef_ex;
+//exp19 add 
+reg id_refill_ex;
+reg id_PPI_ex;
+reg id_PIF_ex;
+
+wire sys_ex;
+wire brk_ex;
+wire id_ex;
+
+reg if_to_id_ex;
 
 //EXEreg
 reg exe_mem_we;
@@ -302,6 +328,15 @@ reg        exe_ine_ex;
 reg        exe_adef_ex;
 reg        exe_ale_ex;
 reg        exe_int_ex;
+//exp19add
+reg        exe_refill_ex;
+reg        exe_PPI_ex;
+reg        exe_PIF_ex;
+reg        id_to_exe_ex;
+
+
+wire       exe_tlb_ex;
+wire       mapping_ADEM;
 
 wire       exe_ex;
 
@@ -336,6 +371,15 @@ reg        mem_ine_ex;
 reg        mem_adef_ex;
 reg        mem_ale_ex;
 reg        mem_int_ex;
+//exp19 add
+reg        mem_adem_ex;
+reg        mem_refill_ex;
+reg        mem_PPI_ex;
+reg        mem_PIF_ex;
+reg        mem_PIL_ex;
+reg        mem_PIS_ex;
+reg        mem_PME_ex;
+reg        mem_exe_tlb_ex;
 
 wire       mem_ex;
 
@@ -376,6 +420,15 @@ reg        wb_ine_ex;
 reg        wb_adef_ex;
 reg        wb_ale_ex;
 reg        wb_int_ex;
+//exp19 add
+reg        wb_adem_ex;
+reg        wb_refill_ex;
+reg        wb_PPI_ex;
+reg        wb_PIF_ex;
+reg        wb_PIL_ex;
+reg        wb_PIS_ex;
+reg        wb_PME_ex;
+reg        wb_exe_tlb_ex;
 
 wire [31:0] csr_rvalue;
 wire [31:0] ex_entry;
@@ -532,6 +585,42 @@ reg reg_wb_refetch;
 reg [31:0] reg_refetch_pc;
 wire [31:0] refetch_pc;
 
+//vaddr_trans sigs
+wire [31:0]  tlb_rentry; 
+
+wire        da;
+wire        pg;
+
+wire [ 1:0] crmd_plv;
+wire [ 2:0] dmw0_pseg;
+wire [ 2:0] dmw0_vseg;
+wire [ 3:0] dmw0_plv;
+wire [ 2:0] dmw1_pseg;
+wire [ 2:0] dmw1_vseg;
+wire [ 3:0] dmw1_plv;
+
+wire [31:0] f_paddr;
+wire [18:0] f_vppn;
+wire        f_va_bit12;
+wire [ 9:0] f_asid;
+
+wire        f_refill;
+wire        f_PPI;
+wire        f_PIF;
+
+wire [31:0] s_paddr;
+wire [18:0] s_vppn;
+wire        s_va_bit12;
+wire [ 9:0] s_asid;
+wire [ 1:0] mem_type;
+wire        s_refill;
+wire        s_PIL;
+wire        s_PIS;
+wire        s_PPI;
+wire        s_PME;
+
+
+
 //wire is_ex_or_ertn;
 //assign is_ex_or_ertn = exe_ex && mem_ex && wb_ex && mem_ertn_flush && wb_ertn_flush;
 //reset
@@ -568,9 +657,13 @@ always @(posedge clk) begin
     if (!resetn) begin
         if_pc <= 32'h1Bfffffc;
     end
-    else if(pre_if_ready_go && if_allowin)  begin//
+    else if(pre_if_ready_go && if_allowin)  begin
         if_pc <= nextpc;
         if_adef_ex <= ADEF;
+        if_refill_ex <= f_refill & ~ADEF;   //根据异常优先级 ADEF > TLB相关异常
+        if_PIF_ex    <= f_PIF & ~ADEF;
+        if_PPI_ex    <= f_PPI & ~ADEF;
+        if_ex        <= pre_if_ex; 
     end
 end
 
@@ -593,6 +686,11 @@ always @(posedge clk) begin
         inst <= if_inst;//inst
         id_pc <= if_pc;//pc
         id_adef_ex <= if_adef_ex;
+        id_refill_ex <= if_refill_ex;
+        id_PIF_ex    <= if_PIF_ex;
+        id_PPI_ex    <= if_PPI_ex;
+
+        if_to_id_ex  <= if_ex;          //用于在ID级判断IF级是否发生异常
     end
 end
 
@@ -639,13 +737,17 @@ always @(posedge clk) begin
         exe_inst_st_h <= inst_st_h;
         exe_inst_rdcntid_w <= inst_rdcntid_w;
 
-        exe_sys_ex <= inst_syscall;
-        exe_brk_ex <= inst_break;
+        id_to_exe_ex  <= if_to_id_ex;       //用于在EXE级判断ID级是否发生异常       
+        exe_sys_ex <= sys_ex;
+        exe_brk_ex <= brk_ex;
         exe_ine_ex <= INE;
         exe_int_ex <= has_int;
         exe_adef_ex <= id_adef_ex;
         exe_ertn_flush <= inst_ertn;
-        
+
+        exe_refill_ex <= id_refill_ex;
+        exe_PIF_ex    <= id_PIF_ex;
+        exe_PPI_ex    <= id_PPI_ex;
 
         exe_counter <= {res_from_counter,inst_rdcntvh_w};
         
@@ -717,6 +819,16 @@ always @(posedge clk) begin
         mem_int_ex <= exe_int_ex;
         mem_adef_ex <= exe_adef_ex;
 
+        mem_adem_ex     <= ADEM;
+        mem_refill_ex <= exe_refill_ex | exe_refill;    //该处refill包含取指或访存的refill，采用
+        mem_PIF_ex    <= exe_PIF_ex;
+        mem_PPI_ex    <= exe_PPI_ex | exe_PPI;
+        mem_PIL_ex    <= exe_PIL;
+        mem_PIS_ex    <= exe_PIS;
+        mem_PME_ex    <=  exe_PME;
+        mem_exe_tlb_ex <= exe_tlb_ex;
+        
+
         mem_inst_tlbsrch <= exe_inst_tlbsrch;
         mem_inst_tlbwr <= exe_inst_tlbwr;
         mem_inst_tlbfill <= exe_inst_tlbfill;
@@ -760,6 +872,15 @@ always @(posedge clk) begin
         wb_int_ex <= mem_int_ex;
         wb_adef_ex <= mem_adef_ex;
 
+        wb_adem_ex     <= mem_adem_ex;
+        wb_refill_ex <= mem_refill_ex;
+        wb_PIF_ex    <= mem_PIF_ex;
+        wb_PPI_ex    <= mem_PPI_ex;
+        wb_PIL_ex    <= mem_PIL_ex;
+        wb_PIS_ex    <= mem_PIS_ex;
+        wb_PME_ex    <= mem_PME_ex;
+        wb_exe_tlb_ex <= mem_exe_tlb_ex;
+
         wb_inst_tlbsrch <= mem_inst_tlbsrch;
         wb_inst_tlbwr <= mem_inst_tlbwr;
         wb_inst_tlbfill <= mem_inst_tlbfill;
@@ -801,7 +922,7 @@ assign exe_ready_go = (!exe_data_sram_en) ?
 assign exe_allowin = !exe_valid || exe_ready_go && mem_allowin; 
 assign exe_to_mem_valid = exe_valid && exe_ready_go;
 //mem_control
-assign mem_ready_go = (mem_is_ldst) ? data_sram_data_ok: 1'b1;
+assign mem_ready_go = (mem_is_ldst && ~mem_ex) ? data_sram_data_ok: 1'b1;
 assign mem_allowin = !mem_valid || mem_ready_go && wb_allowin;
 assign mem_to_wb_valid = mem_valid && mem_ready_go;
 //wb_control
@@ -814,7 +935,7 @@ assign wb_validout = wb_valid && wb_ready_go;
 //inst_sram
 assign inst_sram_req   = resetn && if_allowin && !br_stall;
 assign inst_sram_we    = 4'b0;
-assign inst_sram_addr  = nextpc;
+assign inst_sram_addr  = f_paddr;//nextpc;
 assign inst_sram_wdata = 32'b0;
 assign inst_sram_wr    = 1'b0;//no write
 assign inst_sram_size  = 2'b10;//always 4 bytes
@@ -823,7 +944,7 @@ assign inst_sram_wstrb = 4'b0;//no write
 //data_SRAM
 assign exe_en          = (~exe_ex & ~mem_ex & ~ex_sig) && exe_valid;
 assign data_sram_en    = exe_en && exe_data_sram_en;
-assign data_sram_addr  = alu_result;
+assign data_sram_addr  = s_paddr;
 assign data_sram_wdata = st_data;// from rkd_value
 assign data_sram_wstrb = exe_data_sram_we & st_strb;
 assign data_sram_wr    = exe_mem_we && !st_cancel;
@@ -866,6 +987,10 @@ always @(posedge clk) begin
     end
 end
 //int and exc.
+
+reg         reg_refill_ex;
+reg  [31:0] reg_tlb_rentry;
+
 always @(posedge clk) begin
     if(!resetn) begin
         reg_wb_ex <= 1'b0;
@@ -874,6 +999,8 @@ always @(posedge clk) begin
         reg_ertn_pc <= 32'b0;
         reg_wb_refetch <= 1'b0;
         reg_refetch_pc <= 32'b0;
+        reg_refill_ex <= 1'b0;
+        reg_tlb_rentry <= 32'b0;
     end
     else if (pre_if_ready_go && if_allowin)begin
         reg_wb_ex <= 1'b0;
@@ -882,7 +1009,13 @@ always @(posedge clk) begin
         reg_ertn_pc <= 32'b0;
         reg_wb_refetch <= 1'b0;
         reg_refetch_pc <= 32'b0;
+        reg_refill_ex <= 1'b0;
+        reg_tlb_rentry <= 32'b0;
     end  else if (wb_ex || ertn_flush || wb_refetch) begin
+        if (wb_ex & wb_refill_ex)begin
+            reg_refill_ex <= 1'b1;
+            reg_tlb_rentry <= tlb_rentry;
+        end
         if (wb_ex) begin
             reg_wb_ex <= 1'b1;
             reg_ex_entry <= ex_entry;
@@ -899,6 +1032,10 @@ always @(posedge clk) begin
     
 end
 
+wire wb_refill;
+assign wb_refill = wb_ex & wb_refill_ex; 
+
+
 //nextPC
 assign seq_pc   = if_pc + 3'h4;                 
 assign nextpc   = 
@@ -906,11 +1043,61 @@ assign nextpc   =
                   reg_wb_refetch  ? reg_refetch_pc  : //added
                   ertn_flush      ? ertn_pc      :                            
                   reg_ertn_flush  ? reg_ertn_pc  :
+                  wb_ex & wb_refill_ex    ? tlb_rentry:
+                  reg_refill_ex   ? reg_tlb_rentry:
                   wb_ex           ? ex_entry     :
                   reg_wb_ex       ? reg_ex_entry :
                   reg_br_taken    ? reg_br_target:
                   (br_taken && !br_stall) ? br_target    : 
-                  seq_pc;   
+                  seq_pc;
+
+//TLB所需虚地址信息
+assign s0_asid = f_asid;
+assign s0_vppn = f_vppn;
+assign s0_va_bit12 = f_va_bit12;
+
+//fetch
+vaddr_trans v0(
+    .vaddr(nextpc),
+    .paddr(f_paddr),
+
+    .asid(w_asid),
+    .s_vppn(f_vppn),           
+    .s_va_bit12(f_va_bit12),
+    .s_asid(f_asid),
+
+    .da(da),
+    .pg(pg),
+
+    .crmd_plv(crmd_plv),
+    .dmw0_vseg(dmw0_vseg),
+    .dmw0_pseg(dmw0_pseg),
+    .dmw0_plv(dmw0_plv),
+    .dmw1_vseg(dmw1_vseg),
+    .dmw1_pseg(dmw1_pseg),
+    .dmw1_plv(dmw1_plv),
+
+    .s_found(s0_found),          
+    .s_ppn(s0_ppn),            
+    .s_ps(s0_ps),
+    .s_plv(s0_plv),
+    //.s_mat,
+    .s_d(s0_d),
+    .s_v(s0_v),
+
+    .mem_type(2'b10),
+
+    .mapping_ADEF(mapping_ADEF),
+    .mapping_ADEM(),        
+
+    .tlb_refill(f_refill),
+    .tlb_PIL(),
+    .tlb_PIS(),
+    .tlb_PIF(f_PIF),
+    .tlb_PME(),     
+    .tlb_PPI(f_PPI)
+);
+   
                   
 //ld or st cancel 
 //used in exe_stage.
@@ -1095,7 +1282,7 @@ assign inst_tlbwr   = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & 
 assign inst_tlbfill = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h10] & op_14_10_d[5'h0d];
 assign inst_invtlb  = op_31_26_d[6'h01] & op_25_22_d[4'h9] & op_21_20_d[2'h0] & op_19_15_d[5'h13];
 
-
+//加入优先级判断
 assign INE= (inst_invtlb && id_invtlb_op > 5'd6) || ~(inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor | inst_slli_w | 
             inst_srli_w | inst_srai_w | inst_sll_w | inst_srl_w | inst_sra_w | inst_mul_w | inst_mulh_w | inst_mulh_wu | 
             inst_div_w | inst_div_wu | inst_mod_w | inst_mod_wu | inst_addi_w |inst_slti | inst_sltui | inst_andi | 
@@ -1103,10 +1290,12 @@ assign INE= (inst_invtlb && id_invtlb_op > 5'd6) || ~(inst_add_w | inst_sub_w | 
             inst_blt | inst_bge | inst_bltu | inst_bgeu | inst_ld_w | inst_ld_h | inst_ld_b | inst_ld_hu | inst_ld_bu
             | inst_st_w | inst_st_h | inst_st_b | inst_csrrd | inst_csrwd  | inst_csrxchg | inst_syscall | inst_break |
             inst_ertn | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid_w | inst_tlbsrch | inst_tlbrd | inst_tlbwr | inst_tlbfill |
-            inst_invtlb);
+            inst_invtlb) & ~ if_to_id_ex;   
              
-assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_req) ;
-assign ALE  = (exe_inst_ld_h | exe_inst_ld_hu | exe_inst_st_h) & alu_result[0] ||(exe_inst_ld_w | exe_inst_st_w) &(alu_result[1:0]!=2'b00)  ;
+assign ADEF = ((nextpc[1:0]!=2'b00) & inst_sram_req) || mapping_ADEF;
+assign ADEM = mapping_ADEM & exe_data_sram_en & ~id_to_exe_ex;
+assign ALE  = ~id_to_exe_ex & ~ADEM & ((exe_inst_ld_h | exe_inst_ld_hu | exe_inst_st_h) & alu_result[0] 
+            ||(exe_inst_ld_w | exe_inst_st_w) &(alu_result[1:0]!=2'b00)) ;
 
 assign ertn_block = (!exe_ready_go)?1'b0:
                      wb_ertn_flush? 1'b0 :(exe_ertn_flush | mem_ertn_flush |inst_ertn);
@@ -1344,8 +1533,60 @@ assign result= (exe_op[0] & exe_op[3])? div_mul_result[63:32] :
 assign s1_asid = invtlb_valid ? exe_rj_value[9:0] : w_asid;
 assign s1_vppn = tlbsrch_valid ? w_vppn : 
                 (invtlb_valid ? exe_rkd_value[31:13] 
-                                        : 19'b0);
-assign s1_va_bit12 = invtlb_valid ? exe_rkd_value[12] : 1'b0;
+                                        : s_vppn);
+assign s1_va_bit12 = invtlb_valid ? exe_rkd_value[12] : s_va_bit12;
+
+assign mem_type = {1'b0, exe_mem_we};    //00:load 01:store
+
+wire tlb_ex_level = exe_data_sram_en & ~id_to_exe_ex & ~ADEM & ~ALE;
+
+assign exe_refill = tlb_ex_level  & s_refill;
+assign exe_PIL = tlb_ex_level & s_PIL;
+assign exe_PIS = tlb_ex_level & s_PIS;
+assign exe_PPI = tlb_ex_level & s_PPI;
+assign exe_PME = tlb_ex_level & s_PME;
+
+vaddr_trans v1(
+    .vaddr(alu_result),
+    .paddr(s_paddr),
+
+    .asid(w_asid),
+    .s_vppn(s_vppn),           
+    .s_va_bit12(s_va_bit12),
+    .s_asid(s_asid),
+
+    .da(da),
+    .pg(pg),
+
+    .crmd_plv(crmd_plv),
+    .dmw0_vseg(dmw0_vseg),
+    .dmw0_pseg(dmw0_pseg),
+    .dmw0_plv(dmw0_plv),
+    .dmw1_vseg(dmw1_vseg),
+    .dmw1_pseg(dmw1_pseg),
+    .dmw1_plv(dmw1_plv),
+
+    .s_found(s1_found),          
+    .s_ppn(s1_ppn),            
+    .s_ps(s1_ps),
+    .s_plv(s1_plv),
+    //.s_mat,
+    .s_d(s1_d),
+    .s_v(s1_v),
+
+    .mem_type(mem_type),
+
+    .mapping_ADEF(),
+    .mapping_ADEM(mapping_ADEM),        
+
+    .tlb_refill(s_refill),
+    .tlb_PIL(s_PIL),
+    .tlb_PIS(s_PIS),
+    .tlb_PIF(),
+    .tlb_PME(s_PME),     
+    .tlb_PPI(s_PPI)
+);
+
 //store
 assign st_data = exe_inst_st_b ? {4{exe_rkd_value[7 :0]}} :
                  exe_inst_st_h ? {2{exe_rkd_value[15:0]}} :
@@ -1390,22 +1631,49 @@ assign mem_result =
 wire csr_wen = wb_valid & wb_csr_we;            
 assign ertn_flush = wb_valid & wb_ertn_flush;   
 assign csr_wr_en = wb_valid & wb_inst_csr;
-assign exe_ex = exe_valid & (exe_sys_ex | exe_brk_ex | exe_int_ex | exe_ine_ex | exe_adef_ex | ALE);      
-assign mem_ex = mem_valid & (mem_sys_ex | mem_brk_ex | mem_int_ex | mem_ine_ex | mem_adef_ex | mem_ale_ex);      
-assign wb_ex = wb_valid & (wb_sys_ex | wb_brk_ex | wb_ine_ex | wb_int_ex | wb_adef_ex | wb_ale_ex);    
+
+//加入了异常优先级的判断
+wire wb_exe_ex;
+
+assign wb_exe_ex = wb_valid & wb_exe_tlb_ex;
+assign exe_tlb_ex = exe_valid & (exe_PIL | exe_PIS | exe_PPI | exe_PME | exe_refill);
+
+//IF > ID
+assign sys_ex = inst_syscall & ~if_to_id_ex; 
+assign brk_ex = inst_break   & ~if_to_id_ex;
+
+assign pre_if_ex = pre_if_valid & (ADEF | f_PIF | f_PPI | f_refill);
+
+assign id_ex   = id_valid & (if_to_id_ex | INE | sys_ex | brk_ex | has_int); 
+
+assign exe_ex = exe_valid & (exe_sys_ex | exe_brk_ex | exe_int_ex | exe_ine_ex | exe_adef_ex | ALE | ADEM |
+                exe_PIF_ex | exe_PIL | exe_PIS | exe_PPI_ex | exe_PPI | exe_PME | exe_refill | exe_refill_ex);      
+assign mem_ex = mem_valid & (mem_sys_ex | mem_brk_ex | mem_int_ex | mem_ine_ex | mem_adef_ex | mem_ale_ex | 
+                mem_PIF_ex | mem_PIL_ex | mem_PIS_ex | mem_PPI_ex | mem_PME_ex | mem_refill_ex | mem_adem_ex);         
+assign wb_ex = wb_valid & (wb_sys_ex | wb_brk_ex | wb_ine_ex | wb_int_ex | wb_adef_ex | wb_ale_ex | 
+                wb_PIF_ex | wb_PIL_ex | wb_PIS_ex | wb_PPI_ex | wb_PME_ex | wb_refill_ex | wb_adem_ex);    
 
 assign rf_we    = wb_rf_we && wb_valid && ~wb_ex;                   
 assign rf_waddr = wb_dest;
 assign rf_wdata = csr_wr_en ? csr_rvalue : wb_final_result;         
 //Ecode Esubcode
-assign wb_ecode = wb_int_ex? 6'h00:
-                  wb_adef_ex? 6'h08:
-                  wb_sys_ex? 6'h0b:
-                  wb_brk_ex? 6'h0c:
-                  wb_ine_ex? 6'h0d:
-                             6'h09;
+assign wb_ecode = wb_int_ex     ? 6'h00:
+                  wb_ale_ex     ? 6'h09:
+                  (wb_adef_ex | wb_adem_ex)    ? 6'h08:
+                  wb_sys_ex     ? 6'h0b:
+                  wb_brk_ex     ? 6'h0c:
+                  wb_ine_ex     ? 6'h0d:
+                  wb_PIL_ex     ? 6'h01:
+                  wb_PIS_ex     ? 6'h02:
+                  wb_PIF_ex     ? 6'h03:
+                  wb_PME_ex     ? 6'h04:
+                  wb_PPI_ex     ? 6'h07:
+                  wb_refill_ex  ? 6'h3f:
+                                6'h00;
  //exp12 only for SYS
-assign wb_esubcode = 9'b0;                  //exp13 has no esubcode
+assign wb_esubcode = wb_adef_ex ? 9'h00 :
+                     wb_adem_ex ? 9'h01 :
+                                  9'h00;                  //exp13 has no esubcode
 
 //add in exp18
 wire [4:0] id_invtlb_op;
@@ -1444,13 +1712,24 @@ csr csr1(.clk(clk),
         .wb_ex(wb_ex),                      
         .ertn_flush(ertn_flush),            
         .wb_ecode(wb_ecode),                
-        .wb_esubcode(wb_esubcode),          
+        .wb_esubcode(wb_esubcode),
+        .wb_exe_ex(wb_exe_ex),          
         .wb_pc(wb_pc),                      
         .wb_vaddr(wb_vaddr),                
         .csr_rvalue(csr_rvalue),            
         .ex_entry(ex_entry),                
         .ertn_pc(ertn_pc),                  
         .has_int(has_int),
+        .da(da),
+        .pg(pg),
+        .tlb_rentry(tlb_rentry),
+        .crmd_plv(crmd_plv),
+        .dmw0_pseg(dmw0_pseg),
+        .dmw0_vseg(dmw0_vseg),
+        .dmw0_plv(dmw0_plv),
+        .dmw1_pseg(dmw1_pseg),
+        .dmw1_vseg(dmw1_vseg),
+        .dmw1_plv(dmw1_plv),
         //add in exp18       
         .tlbsrch_valid(tlbsrch_valid),
         .tlbrd_valid(tlbrd_valid),
